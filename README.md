@@ -332,8 +332,12 @@ A ROS2 Galatic package that implements a connector for VDA5050 and works as a br
 Follow the first two steps in the [Running the TB3 adapter](https://github.com/inorbit-ai/vda5050_adapter_examples/blob/galactic-devel/vda5050_tb3_adapter/README.md) to launch the VDA5050_connector with Nav2. Next step is to set the initial pose for Nav2 by clicking the *2D Pose Estimate* button in RViz, and then down clicking on the map in where the robot is in the Gazebo world.
 
 **Note**: if you choose to use VDA5050_connector as a mission client:
-- Run mission_dispatch first and then vda5050_connector to avoid MQTT connection issue.
-- Set `--mqtt_prefix uagv/v1/{manufacturer_name}` option when running mission_dispatch. This applies to all the deployment and development approaches.
+- Simply run the docker-compose file to bring up all the mission dispatch microservices:
+    ```
+    cd mission_dispatch/docker_compose
+    docker-compose -f vda5050-adapter-examples.yaml up
+    # run `docker-compose -f vda5050-adapter-examples.yaml down` if you want to bring down all the services.
+    ```
 - Set the robot object's name to {serial_number} when post robot and mission. (See the [Add Robots with REST API](#add-robots-with-rest-api) section for more details)
 - {manufacturer_name} and {serial_number}  can be found in `vda5050_adapter_examples/vda5050_tb3_adapter/config/connector_tb3.yaml`
 
