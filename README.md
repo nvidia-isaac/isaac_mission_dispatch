@@ -4,7 +4,7 @@
 Isaac Mission Dispatch is a cloud service that enables the communication between edge robots and other cloud services responsible for managing a fleet of robots. The communication between Mission Dispatch and robots is designed per [VDA5050 protocol](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) and uses [MQTT](https://mqtt.org/), as MQTT is the industry standard for a highly efficient, scalable protocol for connecting devices over the internet. VDA 5050 is an open standard for communication between fleets of AGVs/AMRs and a central fleet service. 
 
 <div align="center"><img src="docs/resources/MD.png" width="650px"/></div>
-<div><i align = "center">Diagram highlighting this package. Mission Dispatch and Client in green. This simplified diagram of a fleet management system on the left is connected to a robot running ROS2 on the right. References are provided to database and MQTT services. Mission Dispatch needs to be integrated with the fleet management system of preference. A matching ROS2 <a href="https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client">Mission Client</a> is available for ROS2 Humble; or use the <a href="https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector">VDA5050 connector</a> from OTTO Motors & InOrbit AI on ROS2 Galactic with Mission Dispatch.</i></div>
+<div><i align = "center">Diagram highlighting this package. Mission Dispatch and Client in green. This simplified diagram of a fleet management system on the left is connected to a robot running ROS 2 on the right. References are provided to database and MQTT services. Mission Dispatch needs to be integrated with the fleet management system of preference. A matching ROS 2 <a href="https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client">Mission Client</a> is available for ROS 2 Humble; or use the <a href="https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector">VDA5050 connector</a> from OTTO Motors & InOrbit AI on ROS 2 Galactic with Mission Dispatch.</i></div>
 <br>
 
 The Mission Dispatch system is composed of two main components:
@@ -17,7 +17,7 @@ The Mission Dispatch system is composed of two main components:
 
 There are several types of communication between a control service and the fleet of robots, including large data transfers such as map updates to the robot, events recordings from the robot, and high throughput, low latency teleoperation of the robot. Each type is better serviced by other side-channel communication protocols. When a side channel for communication is needed, Mission Dispatch should establish and provide the connection details as it maintains a database for the current state of the system and available robots.
 
-In order for a robot to execute missions, it needs to be a *mission client*. A lightweight mission client simulator is provided to test a simple simulated robot that implements a VDA5050 client (see the [Robot Clients](#robot-clients) section for more details). A mission client node is also available in [ROS2](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client).
+In order for a robot to execute missions, it needs to be a *mission client*. A lightweight mission client simulator is provided to test a simple simulated robot that implements a VDA5050 client (see the [Robot Clients](#robot-clients) section for more details). A mission client node is also available in [ROS 2](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client).
 
 In summary, Isaac Mission Dispatch microservices enable fleet management software to submit missions to multiple robots and monitor the robot and mission states. It provides a connection between the robots and the fleet management system but does not handle logistics such as task allocation or conflict resolution, e.g., robots with intersecting paths. The implementation relies [VDA5050 protocol](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) as an industry standard between a cloud control service and mobile robots, and uses [MQTT](https://mqtt.org/) as a lightweight, publish-subscribe, machine to machine network protocol designed for devices with resource constraints and limited network bandwidth. 
 
@@ -94,7 +94,7 @@ In this example, the mission is shown on the left. The robot is asked to go to a
 
 ## Getting Started with Deployment (Recommended)
 
-We provide three deployment options here for using Mission Dispatch services: deploy with official Docker containers, deploy with a `docker-compose` file, and deploy with Kubernetes. 
+We provide three deployment options here for using Mission Dispatch services: deploy with official Docker containers, deploy with a Docker Compose file, and deploy with Kubernetes. 
 
 Download the repository:
 
@@ -104,7 +104,7 @@ git clone https://github.com/NVIDIA-ISAAC/isaac_mission_dispatch
 
 Continue here to run Mission Dispatch microservices directly on a computer, CSP, or EGX. Skip to section [Getting Started with Local Development](#getting-started-with-local-development) to develop services locally on your computer.
 
-An interactive documentation page that can be used to submit missions will be launched after the deployment. If you used the default parameters, this can be found at `http://localhost:5000/docs` or `http:<your_ip_address>:5000/docs`. 
+An interactive documentation page that can be used to submit missions will be launched after the deployment. If you used the default parameters, this can be found at `http://localhost:5000/docs` or `http://<your_ip_address>:5000/docs`. 
 ### Deploy with Official Docker Containers 
 1. Launch Dependencies.
 
@@ -115,7 +115,7 @@ An interactive documentation page that can be used to submit missions will be la
     The MQTT broker is used for communication between the Mission Dispatch and the robots. There are many ways to run an MQTT broker, including as a system daemon, a stand alone application, or a docker container. Here we use mosquitto as our MQTT broker. Start the mosquitto broker by running the following:
 
     ```
-    cd mission_dispatch
+    cd isaac_mission_dispatch 
     docker run -it --network host -v ${PWD}/packages/utils/test_utils/mosquitto.sh:/mosquitto.sh -d eclipse-mosquitto:latest sh mosquitto.sh 1883 9001
     ```
 
@@ -155,17 +155,17 @@ An interactive documentation page that can be used to submit missions will be la
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:2022.10.17_de4892b
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:2023.4.4_fa9afd5
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
 
-To simplify the steps in the [Deploy with Official Docker Containers](#deploy-with-official-docker-containers) section, the two dependencies (MQTT broker/Postgres database) and the Mission Dispatch microservices (database/dispatch) are packaged into one docker-compose file. You can simply run the steps below to achieve the bring up all the microservices:
+To simplify the steps in the [Deploy with Official Docker Containers](#deploy-with-official-docker-containers) section, the two dependencies (MQTT broker/Postgres database) and the Mission Dispatch microservices (database/dispatch) are packaged into one Docker Compose file. You can simply run the steps below to achieve the bring up all the microservices:
 
 ```
-cd mission_dispatch/docker_compose
-docker-compose -f mission_dispatch_services.yaml up
-# run `docker-compose -f mission_dispatch_services.yaml down` if you want to bring down all the services.
+cd isaac_mission_dispatch/docker_compose
+docker compose -f mission_dispatch_services.yaml up
+# run `docker compose -f mission_dispatch_services.yaml down` if you want to bring down all the services.
 ```
 
 ### Deploy with Kubernetes 
@@ -191,7 +191,7 @@ docker-compose -f mission_dispatch_services.yaml up
 2. Set up Mission Dispatch services:
 
     ```
-    cd mission_dispatch
+    cd isaac_mission_dispatch 
     helm install mission-dispatch charts/
     ```
 
@@ -204,8 +204,8 @@ All building and running of applications through bazel
 should be done within this container to ensure that the correct dependencies are present. 
 
 ```
-cd mission_dispatch
-docker build --network host -t isaac-misssion-dispatch "${PWD}/docker"
+cd isaac_mission_dispatch 
+docker build --network host -t isaac-mission-dispatch "${PWD}/docker"
 ```
 
 ### Launch Mission Dispatch Services Locally
@@ -226,7 +226,7 @@ docker build --network host -t isaac-misssion-dispatch "${PWD}/docker"
         -v /var/run/docker.sock:/var/run/docker.sock \
         -u $(id -u) \
         --group-add $(getent group docker | cut -d: -f3) \
-        isaac-misssion-dispatch /bin/bash
+        isaac-mission-dispatch /bin/bash
     ```
     You may run this command in as many terminals as you want to get more terminals in the same developer
 environment. A new docker container will be launched for each instance, but they will share the same Bazel cache and source code.
@@ -253,13 +253,13 @@ unit tests within the docker container:
     bazel run packages/database:postgres -- --db_name mission --db_username postgres \
         --db_password <add_postgres_password> --db_host localhost --db_port 5432
 
-    # Change <add_postgres_password> to a valid postgre password, such as `postgres` or $POSTGRES_PASSWORD if you have set the environment variable before.
+    # Change <add_postgres_password> to a valid postgres password, such as `postgres` or $POSTGRES_PASSWORD if you have set the environment variable before.
     # To see what configuration options are, run
     # bazel run packages/database:postgres -- --help
     ```
 
     An interactive documentation page that can be used to submit missions will be launched with the Mission Database microservice. 
-    If you used the default parameters, this can be found at `http://localhost:5000/docs`, or `http:<your_ip_address>:5000/docs`. 
+    If you used the default parameters, this can be found at `http://localhost:5000/docs`, or `http://<your_ip_address>:5000/docs`. 
 
     b. Launch Mission Dispatch 
 
@@ -321,19 +321,27 @@ docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:2022.10.17_
 ```
 ##### 2. Isaac ROS Mission Client with Isaac Sim 
 
-A ROS2 Humble package that receives tasks and actions from the fleet management service through Mission Dispatch and updates its progress, state, and errors. It also performs navigation actions with [Nav2](https://navigation.ros.org/) and can be integrated with other ROS actions.
+A ROS 2 Humble package that receives tasks and actions from the fleet management service through Mission Dispatch and updates its progress, state, and errors. It also performs navigation actions with [Nav2](https://navigation.ros.org/) and can be integrated with other ROS actions.
 
 See the tutorials given in the [ROS Mission Client](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client) for how to use Mission Dispatch services with ROS Mission Client and [NVIDIA Isaac Sim](https://developer.nvidia.com/isaac-sim).
 
 ##### 3. VDA5050_connector with Gazebo
 
-A ROS2 Galatic package that implements a connector for VDA5050 and works as a bridge between a Mission Dispatch and a ROS2 robot. It also supports the Nav2 robot navigation stack with other user-defined actions.
+A ROS 2 Galactic package that implements a connector for VDA5050 and works as a bridge between a Mission Dispatch and a ROS 2 robot. It also supports the Nav2 robot navigation stack with other user-defined actions.
 
 Follow the first two steps in the [Running the TB3 adapter](https://github.com/inorbit-ai/vda5050_adapter_examples/blob/galactic-devel/vda5050_tb3_adapter/README.md) to launch the VDA5050_connector with Nav2. Next step is to set the initial pose for Nav2 by clicking the *2D Pose Estimate* button in RViz, and then down clicking on the map in where the robot is in the Gazebo world.
 
 **Note**: if you choose to use VDA5050_connector as a mission client:
-- Run mission_dispatch first and then vda5050_connector to avoid MQTT connection issue.
-- Set `--mqtt_prefix uagv/v1/{manufacturer_name}` option when running mission_dispatch. This applies to all the deployment and development approaches.
+- Simply run the Docker Compose file to bring up all the Mission Dispatch microservices:
+    ```
+    cd isaac_mission_dispatch/docker_compose
+    docker compose -f vda5050-adapter-examples.yaml up
+    # run `docker compose -f vda5050-adapter-examples.yaml down` if you want to bring down all the services.
+    ```
+    The IP address of the interactive documentation page `http://<mission_database_ip_address>:5000/docs` can be found through the command: 
+    ```
+    docker network inspect deployment_vda5050-adapter-examples
+    ```
 - Set the robot object's name to {serial_number} when post robot and mission. (See the [Add Robots with REST API](#add-robots-with-rest-api) section for more details)
 - {manufacturer_name} and {serial_number}  can be found in `vda5050_adapter_examples/vda5050_tb3_adapter/config/connector_tb3.yaml`
 
@@ -571,7 +579,7 @@ Watch the Submitting Missions video tutorial given in the [Submitting Missions](
 A [ROS mission client package](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client) that allows the mission dispatch to communicate with robots through the MQTT protocol. Visit this resource for more video tutorials on using Mission Dispatch with Isaac ROS Mission Client, as well as for [NVIDIA Isaac Sim](https://developer.nvidia.com/isaac-sim) running on local and cloud.
 
 ### VDA5050 Connector 
-The [vda5050_connector](https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector) package is another mission client (in ROS Galatic) that provides a set of ROS2 nodes for connecting a ROS2-based robot to the Mission Dispatch.
+The [vda5050_connector](https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector) package is another mission client (in ROS 2 Galactic) that provides a set of ROS 2 nodes for connecting a ROS 2-based robot to the Mission Dispatch.
 
 ### Isaac ROS Troubleshooting
 Check [here](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/blob/main/docs/troubleshooting.md) for solutions to problems with Isaac ROS.
