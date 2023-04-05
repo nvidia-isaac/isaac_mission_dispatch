@@ -333,9 +333,13 @@ class Robot:
         self.set_mission_node_state(str(current_mission_node.name), node_state)
 
     def get_mission_errors(self, message: types.VDA5050OrderInformation):
+        fatal_errors = False
         if len(message.errors) == 0:
             return False
         for error in message.errors:
+            if error.errorLevel != types.VDA5050ErrorLevel.FATAL:
+                continue
+            fatal_errors = True
             for error_reference in error.errorReferences:
                 if error_reference.referenceKey in \
                         ["node_id", "nodeId", "action_id", "actionId"]:
@@ -350,7 +354,7 @@ class Robot:
                         (self._current_mission.status.node_status[
                             str(self._current_mission.mission_tree[mission_node].name)].error_msg) \
                             = error.errorDescription
-        return True
+        return fatal_errors
 
     def update_mission(self, message: types.VDA5050OrderInformation):
         # Do nothing if there is no mission
