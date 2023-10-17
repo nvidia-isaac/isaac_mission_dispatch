@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ SPDX-License-Identifier: Apache-2.0
 import abc
 import base64
 import enum
-from typing import Any, Callable, List, NamedTuple, Optional, Type
+from typing import Any, Callable, List, NamedTuple, Optional, Type, Dict
 import uuid
 
 import pydantic
@@ -78,6 +78,15 @@ class ApiObject(pydantic.BaseModel, metaclass=abc.ABCMeta):
         pass
 
     @classmethod
+    @abc.abstractmethod
+    def get_query_params(cls) -> Any:
+        pass
+
+    @staticmethod
+    def get_query_map() -> Dict:
+        return {}
+
+    @classmethod
     def get_methods(cls) -> List[ApiObjectMethod]:
         return []
 
@@ -92,3 +101,7 @@ class ApiObject(pydantic.BaseModel, metaclass=abc.ABCMeta):
     @classmethod
     def get_uuid(cls) -> str:
         return base64.b32encode(uuid.uuid4().bytes).lower().decode("utf-8").replace("=", "")
+
+    @classmethod
+    def default_spec(cls):
+        pass

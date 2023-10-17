@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ SCENARIO1_EXPECTED_STATUSES = [
                                                 '0': {'state': 'COMPLETED'},
                                                 '1': {'state': 'COMPLETED'},
                                                 '2': {'state': 'COMPLETED'},
-                                                '3': {'state': 'COMPLETED'}}),]
+                                                '3': {'state': 'COMPLETED'}}), ]
 
 MISSION_TREE_2 = [
     test_context.route_generator(),
@@ -60,7 +60,7 @@ SCENARIO2_EXPECTED_STATUSES = [
                                                 '0': {'state': 'COMPLETED'},
                                                 '1': {'state': 'FAILED',
                                                       'error_msg': 'Action failure'},
-                                                '2': {'state': 'PENDING'}}),]
+                                                '2': {'state': 'PENDING'}}), ]
 
 MISSION_TREE_3 = [
     test_context.route_generator(),
@@ -78,7 +78,7 @@ SCENARIO3_EXPECTED_STATUSES = [
                                                 '0': {'state': 'COMPLETED'},
                                                 'selector_1': {'state': 'COMPLETED'},
                                                 '2': {'state': 'FAILED', 'error_msg': 'Action failure'},
-                                                '3': {'state': 'COMPLETED'}}),]
+                                                '3': {'state': 'COMPLETED'}}), ]
 
 MISSION_TREE_4 = [
     test_context.route_generator(),
@@ -95,7 +95,7 @@ SCENARIO4_EXPECTED_STATUSES = [
                                                 '0': {'state': 'COMPLETED'},
                                                 'sequence_1': {'state': 'FAILED'},
                                                 '2': {'state': 'FAILED', 'error_msg': 'Action failure'},
-                                                '3': {'state': 'PENDING'}}),]
+                                                '3': {'state': 'PENDING'}}), ]
 
 MISSION_TREE_5 = [
     test_context.route_generator(),
@@ -121,48 +121,93 @@ SCENARIO5_EXPECTED_STATUSES = [
                                                 'sequence_1': {'state': 'COMPLETED'},
                                                 '4': {'state': 'COMPLETED'},
                                                 '5': {'state': 'COMPLETED'},
-                                                '6': {'state': 'COMPLETED'}}),]
+                                                '6': {'state': 'COMPLETED'}}), ]
+
+MISSION_TREE_6 = [
+    test_context.route_generator(),
+    test_context.action_generator(0, 1, parent="root", name="pickup"),
+    {"name": "selector_1", "selector": {}, "parent": "root"},
+    test_context.action_generator(
+        1, 1, parent="selector_1", name="fake_failure_route"),
+    {"name": "sequence_1", "sequence": {}, "parent": "selector_1"},
+    test_context.route_generator(parent="sequence_1"),
+    test_context.action_generator(0, 1, parent="sequence_1", name="dropoff"),
+    {"name": "constant_node", "constant": {
+        "success": "false"}, "parent": "sequence_1"},
+    test_context.action_generator(0, 1, parent="root", name="dropoff_at_goal"),
+]
+SCENARIO6_EXPECTED_STATUSES = [
+    mission_object.MissionStatusV1(state="PENDING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=1),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=3),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=5),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=6),
+    mission_object.MissionStatusV1(state="FAILED", current_node=7,
+                                   node_status={'root': {'state': 'FAILED'},
+                                                '0': {'state': 'COMPLETED'},
+                                                'pickup': {'state': 'COMPLETED'},
+                                                'selector_1': {'state': 'FAILED'},
+                                                'fake_failure_route': {'state': 'FAILED', 'error_msg': 'Action failure'},
+                                                'sequence_1': {'state': 'FAILED'},
+                                                '5': {'state': 'COMPLETED'},
+                                                'dropoff': {'state': 'COMPLETED'},
+                                                'constant_node': {'state': 'FAILED'},
+                                                'dropoff_at_goal': {'state': 'PENDING'}}), ]
+
 
 class TestMissionTree(unittest.TestCase):
     """ Test mission tree """
+
     def test_single_layer_mission_tree(self):
         """ Test single layer tree with routes and actions """
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            ctx.db_client.create(test_context.mission_object_generator("test01", MISSION_TREE_1))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_1))
             # Make sure the mission is updated and completed
             for expected_state, update in zip(SCENARIO1_EXPECTED_STATUSES,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
-                self.assertEqual(update.status.current_node, expected_state.current_node)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    self.assertEqual(update.status.node_status, expected_state.node_status)
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
                     break
 
             # Make sure the robot is at the last position in the list of waypoints
-            robot_status = ctx.db_client.get(api_objects.RobotObjectV1, "test01").status
+            robot_status = ctx.db_client.get(
+                api_objects.RobotObjectV1, "test01").status
             waypoint = MISSION_TREE_1[-1]["route"]["waypoints"][-1]
-            self.assertAlmostEqual(robot_status.pose.x, waypoint["x"], places=2)
-            self.assertAlmostEqual(robot_status.pose.y, waypoint["y"], places=2)
+            self.assertAlmostEqual(robot_status.pose.x,
+                                   waypoint["x"], places=2)
+            self.assertAlmostEqual(robot_status.pose.y,
+                                   waypoint["y"], places=2)
 
     def test_single_layer_tree_with_action_failure(self):
         """ Test single layer tree with routes and failure action """
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            ctx.db_client.create(test_context.mission_object_generator("test01", MISSION_TREE_2))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_2))
             # Make sure the mission is updated and completed
             for expected_state, update in zip(SCENARIO2_EXPECTED_STATUSES,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
-                self.assertEqual(update.status.current_node, expected_state.current_node)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
                 if update.status.state == mission_object.MissionStateV1.FAILED:
-                    self.assertEqual(update.status.node_status, expected_state.node_status)
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
                     break
 
     def test_selection_node_with_failure_action(self):
@@ -170,16 +215,20 @@ class TestMissionTree(unittest.TestCase):
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            ctx.db_client.create(test_context.mission_object_generator("test01", MISSION_TREE_3))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_3))
             # Make sure the mission is updated and completed
             for expected_state, update in zip(SCENARIO3_EXPECTED_STATUSES,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
-                self.assertEqual(update.status.current_node, expected_state.current_node)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    self.assertEqual(update.status.node_status, expected_state.node_status)
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
                     break
 
     def test_sequence_node_with_failure_action(self):
@@ -187,16 +236,20 @@ class TestMissionTree(unittest.TestCase):
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            ctx.db_client.create(test_context.mission_object_generator("test01", MISSION_TREE_4))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_4))
             # Make sure the mission is updated and completed
             for expected_state, update in zip(SCENARIO4_EXPECTED_STATUSES,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
-                self.assertEqual(update.status.current_node, expected_state.current_node)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    self.assertEqual(update.status.node_status, expected_state.node_status)
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
                     break
 
     def test_three_layer_behavior_tree(self):
@@ -204,22 +257,29 @@ class TestMissionTree(unittest.TestCase):
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            ctx.db_client.create(test_context.mission_object_generator("test01", MISSION_TREE_5))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_5))
             # Make sure the mission is updated and completed
             for expected_state, update in zip(SCENARIO5_EXPECTED_STATUSES,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
-                self.assertEqual(update.status.current_node, expected_state.current_node)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    self.assertEqual(update.status.node_status, expected_state.node_status)
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
                     break
             # Make sure the robot is at the last position in the list of waypoints
-            robot_status = ctx.db_client.get(api_objects.RobotObjectV1, "test01").status
+            robot_status = ctx.db_client.get(
+                api_objects.RobotObjectV1, "test01").status
             waypoint = MISSION_TREE_5[-1]["route"]["waypoints"][-1]
-            self.assertAlmostEqual(robot_status.pose.x, waypoint["x"], places=2)
-            self.assertAlmostEqual(robot_status.pose.y, waypoint["y"], places=2)
+            self.assertAlmostEqual(robot_status.pose.x,
+                                   waypoint["x"], places=2)
+            self.assertAlmostEqual(robot_status.pose.y,
+                                   waypoint["y"], places=2)
 
     def test_naming(self):
         """ Test if certain name will trigger node translation failure """
@@ -233,19 +293,22 @@ class TestMissionTree(unittest.TestCase):
             mission_object.MissionStatusV1(state="PENDING", current_node=0),
             mission_object.MissionStatusV1(state="RUNNING", current_node=0),
             mission_object.MissionStatusV1(state="RUNNING", current_node=1),
-            mission_object.MissionStatusV1(state="COMPLETED", current_node=1),]
+            mission_object.MissionStatusV1(state="COMPLETED", current_node=1), ]
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            mission = test_context.mission_object_generator("test01", mission_tree)
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            mission = test_context.mission_object_generator(
+                "test01", mission_tree)
             mission.name = "my-new-mission"
             ctx.db_client.create(mission)
-            time.sleep(0.25)
             # Make sure the mission is updated and completed
             for expected_state, update in zip(mission_status,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
-                self.assertEqual(update.status.current_node, expected_state.current_node)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
                     break
 
@@ -257,20 +320,27 @@ class TestMissionTree(unittest.TestCase):
             test_context.route_generator(name="route-node", parent="root"),
         ]
         with test_context.TestContext([robot]) as ctx:
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
             with self.assertRaises(pydantic.error_wrappers.ValidationError) as cm:
-                ctx.db_client.create(test_context.mission_object_generator("test01", mission_tree))
+                ctx.db_client.create(
+                    test_context.mission_object_generator("test01", mission_tree))
             self.assertTrue("route-node" in str(cm.exception))
             self.assertTrue("repeated" in str(cm.exception))
 
     def test_nonexist_parent(self):
         """ Test if mission fails when parent doesn't exist """
         robot = simulator.RobotInit("test01", 0, 0, 0)
-        mission_tree = [test_context.route_generator(name="route-node", parent="root-1")]
+        mission_tree = [test_context.route_generator(
+            name="route-node", parent="root-1")]
         with test_context.TestContext([robot]) as ctx:
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
             with self.assertRaises(pydantic.error_wrappers.ValidationError) as cm:
-                ctx.db_client.create(test_context.mission_object_generator("test01", mission_tree))
+                ctx.db_client.create(
+                    test_context.mission_object_generator("test01", mission_tree))
             self.assertTrue("root-1" in str(cm.exception))
             self.assertTrue("route-node" in str(cm.exception))
 
@@ -280,9 +350,11 @@ class TestMissionTree(unittest.TestCase):
         restart_once = False
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-            ctx.db_client.create(test_context.mission_object_generator("test01", MISSION_TREE_5))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_5))
 
             # Make sure the mission is updated and completed
             completed = False
@@ -297,6 +369,28 @@ class TestMissionTree(unittest.TestCase):
                     completed = True
                     break
             self.assertTrue(completed)
+
+    def test_constant_node(self):
+        """ Test three-layer tree with the constant node """
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_6))
+            # Make sure the mission is updated and completed
+            for expected_state, update in zip(SCENARIO6_EXPECTED_STATUSES,
+                                              ctx.db_client.watch(api_objects.MissionObjectV1)):
+                self.assertEqual(update.status.state, expected_state.state)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
+                    break
+
 
 if __name__ == "__main__":
     unittest.main()

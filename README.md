@@ -59,6 +59,7 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
   - [License](#license)
 
 ## Latest Update
+Update 2023-10   : Addition of battery status, update/cancel missions, nodePosition, bug fixes.
 Update 2022-10-19: Initial release
 
 ## Supported Platforms
@@ -72,14 +73,17 @@ A mission is a series of tasks to be completed by a given robot. It is represent
 
 Each mission tree node has four possible states: `IDLE`, `RUNNING`, `SUCCESS`, and `FAILURE`. Currently supported mission tree nodes are: *sequence*, *selector*, *route*, and *action*:
 
-  | Field         | Type          | Parameters                    | Description                                                                                                                                |
-  | --------------------- | ------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-  | name      | `Optional[str]` | None     | A unique name to give the node. If not specified, it will be automatically set to the index of the node in the list |
-  | parent      | `Optional[str]` | None     | The parent of the node. If not specified, it will be the “root” node. |
-  | sequence       | `Optional[object]` | None         | Executes children nodes in order. If the child node currently running completes with `SUCCESS`, then the next child node is started. Otherwise, the sequence node completes with `FAILURE`. If all children nodes complete with `SUCCESS`, then the sequence node completes with `SUCCESS`. |
-  | selector      | `Optional[object]` | None              | Executes children nodes in order. If the child node currently running completes with `SUCCESS`, then the selector node completes with `SUCCESS`. Otherwise, the next child node is started. If all children nodes fail, then the selector node completes with `FAILURE`. |
-  | action      | `Optional[object]` |`name(string)`: The name of the action to trigger on the robot <br> `params(json)`: An arbitrary, action-specific JSON payload to send as parameters to the action           | Performs some generic, named action on the robot.  |
-  | route      | `Optional[object]` | `waypoints(List[Pose2D])`: A list of 2D poses for the robot to visit     | Instructs the robot to travel a given route. The robot may or may not visit intermediate waypoints, but the final waypoint must be visited. Will return either `SUCCESS` or `FAILURE`, depending on whether the robot can successfully navigate to the final waypoint. |
+  | Field    | Type               | Parameters                                                                                                                                                         | Description                                                                                                                                                                                                                                                                                 |
+  | -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | name     | `Optional[str]`    | None                                                                                                                                                               | A unique name to give the node. If not specified, it will be automatically set to the index of the node in the list                                                                                                                                                                         |
+  | parent   | `Optional[str]`    | None                                                                                                                                                               | The parent of the node. If not specified, it will be the “root” node.                                                                                                                                                                                                                       |
+  | sequence | `Optional[object]` | None                                                                                                                                                               | Executes children nodes in order. If the child node currently running completes with `SUCCESS`, then the next child node is started. Otherwise, the sequence node completes with `FAILURE`. If all children nodes complete with `SUCCESS`, then the sequence node completes with `SUCCESS`. |
+  | selector | `Optional[object]` | None                                                                                                                                                               | Executes children nodes in order. If the child node currently running completes with `SUCCESS`, then the selector node completes with `SUCCESS`. Otherwise, the next child node is started. If all children nodes fail, then the selector node completes with `FAILURE`.                    |
+  | action   | `Optional[object]` | `name(string)`: The name of the action to trigger on the robot <br> `params(json)`: An arbitrary, action-specific JSON payload to send as parameters to the action | Performs some generic, named action on the robot.                                                                                                                                                                                                                                           |
+  | route    | `Optional[object]` | `waypoints(List[VDA5050NodePosition])`: A list of poses for the robot to visit                                                                                               | Instructs the robot to travel a given route. The robot may or may not visit intermediate waypoints, but the final waypoint must be visited. Will return either `SUCCESS` or `FAILURE`, depending on whether the robot can successfully navigate to the final waypoint.                      |
+
+`VDA5050NodePosition` corresponds to the `nodePosition` data structure in the [VDA5050 protocol](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) section 6.7.
+
 
 The difference between the *sequence* and *selector* node: a *sequence* node will attempt to run all the child nodes as long as `SUCCESS` is being returned and will instantly return `FAILURE` upon a node failing, whereas "selector" will attempt to get only a single `SUCCESS`, and upon failure, will keep trying child nodes until it gets either gets `SUCCESS` or exhausts all child nodes.
  
@@ -144,10 +148,10 @@ An interactive documentation page that can be used to submit missions will be la
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:2022.10.17_de4892b
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:isaac_ros
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:2022.10.17_de4892b --help
+    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:isaac_ros --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -155,7 +159,7 @@ An interactive documentation page that can be used to submit missions will be la
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:2023.4.4_fa9afd5
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:isaac_ros
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -185,14 +189,22 @@ docker compose -f mission_dispatch_services.yaml up
         --set auth.postgresPassword=postgres \
         --set auth.database=mission \
         --set primary.persistence.storageClass=manual \
-        --set volumePermissions.enabled=True
+        --set volumePermissions.enabled=True \
+        --set image.tag=15-debian-11
     ```
 
 2. Set up Mission Dispatch services:
 
     ```
     cd isaac_mission_dispatch 
-    helm install mission-dispatch charts/
+    helm install mission-dispatch charts --set hostDomainName=<your_host_doamin_name>
+    ```
+
+3. Test with Mission Simulator:
+
+    ```
+    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:isaac_ros --robots carter_x,4,5 \
+        --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
 ## Getting Started with Local Development
@@ -315,7 +327,7 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:2022.10.17_de4892b --robots \
+docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:isaac_ros --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
@@ -332,7 +344,6 @@ A ROS 2 Galactic package that implements a connector for VDA5050 and works as a 
 Follow the first two steps in the [Running the TB3 adapter](https://github.com/inorbit-ai/vda5050_adapter_examples/blob/galactic-devel/vda5050_tb3_adapter/README.md) to launch the VDA5050_connector with Nav2. Next step is to set the initial pose for Nav2 by clicking the *2D Pose Estimate* button in RViz, and then down clicking on the map in where the robot is in the Gazebo world.
 
 **Note**: if you choose to use VDA5050_connector as a mission client:
-
 - Simply run the Docker Compose file to bring up all the Mission Dispatch microservices:
     ```
     cd isaac_mission_dispatch/docker_compose
@@ -342,7 +353,6 @@ Follow the first two steps in the [Running the TB3 adapter](https://github.com/i
     The IP address of the interactive documentation page `http://<mission_database_ip_address>:5000/docs` can be found through the command: 
     ```
     docker network inspect deployment_vda5050-adapter-examples
-
     ```
 - Set the robot object's name to {serial_number} when post robot and mission. (See the [Add Robots with REST API](#add-robots-with-rest-api) section for more details)
 - {manufacturer_name} and {serial_number}  can be found in `vda5050_adapter_examples/vda5050_tb3_adapter/config/connector_tb3.yaml`
@@ -352,14 +362,12 @@ The interactive REST API page is used to set up the robot.
 
 Use the `POST /robot` endpoint to create robot objects to represent the robots that will be connected to the mission dispatch. Make sure the names of the robots match the names given to the simulated/real robots.
 
-Use the `GET /robot` endpoint to query the status of the robots once they are created. If the robots are connected, the state should reflect the actual position of the robots.
-
 **Note**: When using the API page, the default value for the robot object's
  `name` in the `spec` is `"string"`, so make sure to change it from `"string"` to another name that has
 more meaning (e.g. `"carter01"`). Set the robot object's
  `name` to `{serial_number}` if you choose to use VDA5050_connector as a mission client. 
 
-A request body example is shown below:
+A request body example for `POST /robot` is shown below:
 
 ```
 {
@@ -371,9 +379,22 @@ A request body example is shown below:
   "name": "carter01"
 }
 ```
+
+Use the `GET /robot` endpoint to query the status of the robots once they are created. If the robots are connected, the state should reflect the actual position of the robots. This endpoint also allows for optional filters which are accessible on the interactive page or through the URL query string if calling the API directly. 
+<details><summary>Click for GET /robot filters</summary>
+
+| Filter name       | Effect                                                    | Value |
+| ------            | ------                                                    | ------|
+|    min_battery    |    Returns robots where `battery_level >= min_battery`    | `float` |
+|    max_battery    |    Returns robots where `battery_level <= max_battery`    | `float` |
+|    state          |    Returns robots that are in the given state             | `IDLE`, `ON_TASK`, or `MAP_DEPLOYMENT` |
+|    online         |    If `true`, returns robots that are online (connected) <br> if `false`, returns robots that are not online (not connected)   | `true` or `false` |
+|    names          |    Returns robots where the robot `name` matches a name in the given list   | `array[string]` |
+</details>
+
 The video below shows the step-by-step process of how to create and query a robot.
 
-https://user-images.githubusercontent.com/84546269/196791251-ae7291d0-6d9c-429e-81c2-c9d3f6e04dc2.mp4
+<div align="center"><img alt="Create and query robots" src="docs/resources/create_and_delete_robot.gif" width="800px"/></div>
 
 For more details about the robot object, specifications, and status definition, please refer to the schemas at the end of the interactive REST API documentation page.
 
@@ -391,13 +412,13 @@ object to `"carter01"`, use that to fill in the `robot` field for the mission.
 
 This video shows the step-by-step process to create and query multiple missions with multiple robots given in the [Examples](#examples) section.
 
-https://user-images.githubusercontent.com/84546269/196791243-d462e74a-ac13-48c3-950c-35e5562271c5.mp4
+<div align="center"><img alt="Create and query multiple missions with multiple robots" src="docs/resources/create_and_query_mission.gif" width="800px"/></div>
 
 Users are allowed to `DELETE` and `CANCEL` a queued mission (submitted but waiting to be executed) at any time. However, if users want to `DELETE` a currently running mission, Mission Dispatch will label the life cycle of the current mission as `PENDING_DELETE`, wait for the current mission to finish, and then delete it. 
 
 Similarly,  if users want to `CANCEL` a currently running mission, Mission Dispatch will set `needs_canceled` in mission specifications to `True`, wait for the current mission to finish, and then cancel the mission. 
 
-All missions are expected to be idempotent and instead of updating a mission: developers are expected to delete and re-submit.
+This POST /mission/{name}/update endpoint is to update the route nodes within a mission. If updates involving changes to sequence and selector nodes in the mission tree structure are necessary, please cancel the mission and submit it again with the revisions. To update the route node for a mission, users need to provide the mission name and the waypoints of the route in the request body of the POST /mission/{name}/update endpoint. Note that users cannot update a route node that has already been marked as completed.
 
 For more details on the mission object, specifications, and status definition, refer to the schemas at the end of the interactive REST API documentation page.
 #### Examples
@@ -455,7 +476,7 @@ Consider a simple mission where the robot `"carter01"` is asked to go to the pic
     }
 ],
 "timeout": 300,
-"deadline": "2022-09-28T04:04:24.013Z",
+"deadline": "2023-09-28T04:04:24.013Z",
 "needs_canceled": false,
 "name": "simple_mission_example"
 }
@@ -568,7 +589,7 @@ Watch the Submitting Missions video tutorial given in the [Submitting Missions](
     }
     ],
     "timeout": 300,
-    "deadline": "2022-09-28T04:04:24.013Z",
+    "deadline": "2023-09-28T04:04:24.013Z",
     "needs_canceled": false,
     "name": "complex_mission_example"
 }
@@ -590,6 +611,20 @@ Check [here](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/blob/main/docs
 | Date       | Changes         |
 | ---------- | --------------- |
 | 2022-10-19 | Initial release |
+
+## Frequently Asked Questions
+* How is the issue of mission persistence exactly addressed?
+
+Tasks assigned to robots are stored in a persistent database in the cloud / edge with Mission Dispatch/Database.  If the robot were to fail it will lose the task, and the behavior tree for the task will inform how Mission Dispatch should handle the failure.  If Mission Dispatch were to fail, the state can be reconstructed from the database, which reflects the known state at the time of failure.
+
+* From a standards perspective, are you following the VDA5050 protocol 100%.
+
+We aim to provide robot control adhering to VDA5050.  There are aspects of the protocol we have not yet needed to implement.  If there are aspects that do not conform, please file an Issue or Pull Request.
+
+* Do you accept Pull Requests.
+
+Yes!
+
 
 ## License
 Isaac Mission Dispatch is under [Apache 2.0 license](https://github.com/NVIDIA-ISAAC/isaac_mission_dispatch/blob/release-dp2/LICENSE).

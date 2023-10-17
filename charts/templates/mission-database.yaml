@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ spec:
       - name: {{ .Values.images.nvcrSecret }}
       containers:
       - name: mission-dispatch-database
-        image: nvcr.io/nvidia/isaac/mission-database:2022.10.17_de4892b
+        image: {{ .Values.images.missionDatabase }}
         command: ["sh"]
         args:
         - -c
@@ -113,7 +113,8 @@ metadata:
   {{- end }}
 spec:
   rules:
-  - http:
+  - host: {{ .Values.hostDomainName }}
+    http:
       paths:
       - path: {{ .Values.missionUrl }}(/|$)(.*)
         pathType: Prefix

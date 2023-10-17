@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,11 +23,14 @@ from typing import Any, List, Optional, Dict
 import pydantic
 
 from packages.objects import common, object
+
+
 class MissionNodeType(str, enum.Enum):
     SELECTOR = "selector"
     SEQUENCE = "sequence"
     ROUTE = "route"
     ACTION = "action"
+    CONSTANT = "constant"
 
 
 class MissionStateV1(str, enum.Enum):
@@ -45,7 +48,7 @@ class MissionStateV1(str, enum.Enum):
 
     @property
     def done(self):
-        return self in (self.COMPLETED, self.FAILED)
+        return self in (self.COMPLETED, self.FAILED, self.CANCELED)
 
 
 class MissionFailureCategoryV1(str, enum.Enum):
@@ -68,6 +71,12 @@ class MissionActionNodeV1(pydantic.BaseModel):
         description="Describes an action that the robot can perform")
     action_parameters: Dict = pydantic.Field(
         {}, description="Array of action parameter for the indicated action")
+
+
+class MissionConstantNodeV1(pydantic.BaseModel):
+    """Constant leaf node"""
+    success: bool = pydantic.Field(
+        True, description="The state to go to when the node is started.")
 
 
 class MissionRouteNodeV1(pydantic.BaseModel):
@@ -97,13 +106,21 @@ class MissionNodeV1(pydantic.BaseModel):
     action: Optional[MissionActionNodeV1] = pydantic.Field(
         description="An action for the robot to complete.")
     selector: Optional[Dict] = pydantic.Field(
-        None, description="A enum describing the node status")
+        None, description="When started, this node will start its first child. If the child \
+            currently running returns FAILED, start the next child. If all children fail, \
+            this node returns FAILURE. If any child succeeds, this node immediately returns \
+            SUCCESS.")
     sequence: Optional[Dict] = pydantic.Field(
-        None, description="A enum describing the node status")
+        None, description="When started, this node will start its first child. If the child \
+            currently running returns SUCCESS, start the next child. If all children succeed, \
+            this node returns SUCCESS. If any child fails, this node immediately returns FAILURE.")
+    constant: Optional[MissionConstantNodeV1] = pydantic.Field(
+        description="A boolean describing the whether the node status should be a success \
+            or failure when started")
 
     @pydantic.root_validator
     def validate_mission_node_type(cls, values):
-        types = ["route", "action", "selector", "sequence"]
+        types = [e.value for e in MissionNodeType]
         set_types = [type for type in types if values.get(type) is not None]
         if len(set_types) != 1:
             raise ValueError(f"Exactly one of the following must be set {types}, "
@@ -113,14 +130,9 @@ class MissionNodeV1(pydantic.BaseModel):
     @property
     def type(self):
         dict_set = self.dict(exclude_unset=True, exclude_none=True)
-        if MissionNodeType.ROUTE.value in dict_set:
-            return MissionNodeType.ROUTE
-        elif MissionNodeType.ACTION.value in dict_set:
-            return MissionNodeType.ACTION
-        elif MissionNodeType.SELECTOR.value in dict_set:
-            return MissionNodeType.SELECTOR
-        elif MissionNodeType.SEQUENCE.value in dict_set:
-            return MissionNodeType.SEQUENCE
+        for node_type in MissionNodeType:
+            if node_type.value in dict_set:
+                return node_type
 
 
 class MissionSpecV1(pydantic.BaseModel):
@@ -138,7 +150,8 @@ class MissionSpecV1(pydantic.BaseModel):
     needs_canceled: bool = pydantic.Field(
         False, description="Marker for whether the mission is requested to be canceled"
     )
-
+    update_nodes: Optional[Dict[str, MissionRouteNodeV1]] = pydantic.Field(
+        None, description="Nodes need to be updated")
 
     @pydantic.validator("mission_tree")
     def _validate_at_least_one_node(cls, value):
@@ -163,6 +176,7 @@ class MissionSpecV1(pydantic.BaseModel):
             name_set.add(node.name)
 
         return value
+
 
 class MissionNodeStatusV1(pydantic.BaseModel):
     """The status of a given node in the mission tree"""
@@ -189,8 +203,22 @@ class MissionStatusV1(pydantic.BaseModel):
                            readable reason why.")
     failure_category: Optional[MissionFailureCategoryV1] = pydantic.Field(
         None, description="A enum describing the cause of the mission failure.")
+
     class Config:
         use_enum_value = True
+
+
+class MissionQueryParamsV1(pydantic.BaseModel):
+    """
+    Specifies the supported query parameters allowed for missions
+    Currently unimplemented, but possible filters are state,
+    start time and end time.
+
+    state: Optional[MissionStateV1]
+    start_time: Optional[datetime.datetime]
+    end_time: Optional[datetime.datetime]
+    """
+
 
 class MissionObjectV1(MissionSpecV1, object.ApiObject):
     """Specifies a mission, which is a list of orders, to be completed by a specific robot."""
@@ -218,13 +246,49 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
     def get_methods(cls) -> List[object.ApiObjectMethod]:
         return [
             object.ApiObjectMethod(
-                name="cancel", description="Marks a mission to be cancelled by mission " \
-                     "dispatch when it is able to.", function=cls.cancel)
+                name="cancel", description="Marks a mission to be cancelled by mission \
+                    dispatch when it is able to.", function=cls.cancel),
+            object.ApiObjectMethod(
+                name="update", description="This endpoint is to update the route \
+                    nodes within a mission. If updates involving changes to sequence and \
+                    selector nodes in the mission tree structure are necessary, please cancel \
+                    the mission and submit it again with the revisions.",
+                function=cls.update,
+                params=Dict[str, MissionRouteNodeV1])
         ]
+
+    @classmethod
+    def get_query_params(cls) -> Any:
+        return MissionQueryParamsV1
 
     @classmethod
     def supports_spec_update(cls) -> bool:
         return False
 
+    @classmethod
+    def default_spec(cls) -> Dict:
+        return MissionSpecV1(robot="NULL", mission_tree=[MissionNodeV1(sequence={})]).dict()
+
     async def cancel(self):
+        if self.status.state.done:
+            raise ValueError(
+                f"Completed mission {self.name} can't be canceled.")
         self.needs_canceled = True
+
+    async def update(self, update_nodes: Dict[str, MissionRouteNodeV1]):
+        if self.status.state.done:
+            raise ValueError(
+                f"Mission {self.name} is finished with status {self.status.state}.")
+        current_node_names = [n.name for n in self.mission_tree]
+        for node_name, _ in update_nodes.items():
+            if node_name not in current_node_names:
+                raise ValueError(
+                    f"Node {node_name} does not exist in mission {self.name}")
+            elif self.status.state is MissionStateV1.RUNNING and \
+                    self.status.node_status[node_name].state.done:
+                raise ValueError(
+                    f"Mission node {node_name} is finished with status \
+                        {self.status.node_status[node_name].state}.")
+        # Update when the nodes exist in the mission and the mission is in PENDING or RUNNING state
+        self.update_nodes = update_nodes
+        return update_nodes

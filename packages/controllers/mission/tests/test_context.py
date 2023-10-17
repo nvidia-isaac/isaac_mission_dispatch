@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ import multiprocessing
 import random
 import time
 import signal
-from typing import Dict, List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple, Tuple, Optional
 
 from packages import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
@@ -49,6 +49,7 @@ POSTGRES_DATABASE_PORT = 5432
 # The MQTT topic prefix
 MQTT_PREFIX = "uagv/v1"
 
+
 class Delay(NamedTuple):
     mqtt_broker: int = 0
     mission_dispatch: int = 0
@@ -60,7 +61,7 @@ class TestContext:
     crashed_process = False
 
     def __init__(self, robots, name="test context", delay: Delay = Delay(),
-                 tick_period: float = 0.25, enforce_start_order: bool = True):
+                 tick_period: float = 0.25, enforce_start_order: bool = True, fail_as_warning=False):
 
         if TestContext.crashed_process:
             raise ValueError("Can't run test due to previous failure")
@@ -71,25 +72,30 @@ class TestContext:
         self._robots = robots
         self._name = name
 
+        fail_as_warning = fail_as_warning or any(
+            robot.fail_as_warning for robot in robots)
+
         print(f"Opening context: {self._name}")
 
         # Register signal handler
         signal.signal(signal.SIGUSR1, self.catch_signal)
-        
-        # Start postgreSQL db 
+
+        # Start postgreSQL db
         self._postgres_database, postgres_address = \
             self.run_docker(image="//packages/utils/test_utils:postgres-database-img-bundle",
-                            docker_args=["-e", "POSTGRES_PASSWORD=postgres", 
+                            docker_args=["-e", "POSTGRES_PASSWORD=postgres",
                                          "-e", "POSTGRES_DB=mission",
                                          "-e", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256"],
                             args=['postgres'])
-        test_utils.wait_for_port(host=postgres_address, port=POSTGRES_DATABASE_PORT, timeout=120)
+        test_utils.wait_for_port(
+            host=postgres_address, port=POSTGRES_DATABASE_PORT, timeout=120)
 
         # Start the database
         self._database_process, self._database_address = \
             self.run_docker(image="//packages/database:postgres-img-bundle",
                             args=["--port", str(DATABASE_PORT),
-                                  "--controller_port", str(DATABASE_CONTROLLER_PORT),
+                                  "--controller_port", str(
+                                      DATABASE_CONTROLLER_PORT),
                                   "--db_host", postgres_address,
                                   "--db_port", str(POSTGRES_DATABASE_PORT),
                                   "--address", "0.0.0.0"])
@@ -117,26 +123,34 @@ class TestContext:
             delay=delay.mission_dispatch)
 
         # Start simulator
+        sim_args = ["--robots", " ".join(str(robot) for robot in self._robots),
+                    "--speed", str(SIM_SPEED),
+                    "--mqtt_port", str(MQTT_PORT),
+                    "--mqtt_host", self._mqtt_address,
+                    "--mqtt_transport", str(MQTT_TRANSPORT),
+                    "--mqtt_ws_path", str(MQTT_WS_PATH),
+                    "--mqtt_prefix", str(MQTT_PREFIX),
+                    "--tick_period", str(tick_period)]
+        if fail_as_warning:
+            sim_args.append("--fail_as_warning")
+
         self._sim_process, _ = self.run_docker("//packages/controllers/mission/tests:client-img-bundle",
-            args=["--robots", " ".join(str(robot) for robot in self._robots),
-                  "--speed", str(SIM_SPEED),
-                  "--mqtt_port", str(MQTT_PORT),
-                  "--mqtt_host", self._mqtt_address,
-                  "--mqtt_transport", str(MQTT_TRANSPORT),
-                  "--mqtt_ws_path", str(MQTT_WS_PATH),
-                  "--mqtt_prefix", str(MQTT_PREFIX),
-                  "--tick_period", str(tick_period)],
-            delay=delay.mission_simulator)
-    
+                                               args=sim_args,
+                                               delay=delay.mission_simulator)
+
         # Create db client
-        self.db_client = db_client.DatabaseClient(f"http://{self._database_address}:{DATABASE_PORT}")
-        self.db_controller_client = db_client.DatabaseClient(f"http://{self._database_address}:{DATABASE_CONTROLLER_PORT}")
+        self.db_client = db_client.DatabaseClient(
+            f"http://{self._database_address}:{DATABASE_PORT}")
+        self.db_controller_client = db_client.DatabaseClient(
+            f"http://{self._database_address}:{DATABASE_CONTROLLER_PORT}")
 
     def wait_for_database(self):
-        test_utils.wait_for_port(host=self._database_address, port=DATABASE_PORT, timeout=120)
+        test_utils.wait_for_port(
+            host=self._database_address, port=DATABASE_PORT, timeout=120)
 
     def wait_for_mqtt(self):
-        test_utils.wait_for_port(host=self._mqtt_address, port=MQTT_PORT, timeout=120)
+        test_utils.wait_for_port(
+            host=self._mqtt_address, port=MQTT_PORT, timeout=120)
 
     def restart_mission_server(self):
         self.close([self._server_process])
@@ -170,7 +184,8 @@ class TestContext:
 
         def wrapper_process():
             docker_process, address = \
-                test_utils.run_docker_target(image, args=args, docker_args=docker_args, delay=delay)
+                test_utils.run_docker_target(
+                    image, args=args, docker_args=docker_args, delay=delay)
             queue.put(address)
             docker_process.wait()
             os.kill(pid, signal.SIGUSR1)
@@ -184,29 +199,35 @@ class TestContext:
             if process is not None:
                 process.terminate()
                 process.join()
+                process.close()
 
     def __enter__(self):
         return self
 
     def __exit__(self, type, value, traceback):
-        self.close([self._server_process, self._database_process, 
+        self.close([self._server_process, self._database_process,
                     self._postgres_database, self._mqtt_process, self._sim_process])
         print(f"Context closed: {self._name}", flush=True)
 
-def mission_from_waypoints(robot: str, waypoints):
+
+def mission_from_waypoints(robot: str, waypoints, name: Optional[str] = None, timeout: int = 1000):
     """Converts a (x, y) coordinate into a mission object"""
     return api_objects.MissionObjectV1(
+        name=name,
         robot=robot,
         mission_tree=[
             {"route": {"waypoints": [{"x": x, "y": y, "theta": 0}]}} for x, y in waypoints
         ],
-        status={})
+        status={},
+        timeout=timeout)
 
-def mission_from_waypoint(robot: str, x: float, y: float):
+
+def mission_from_waypoint(robot: str, x: float, y: float, name: Optional[str] = None):
     """Converts a (x, y) coordinate into a mission object"""
-    return mission_from_waypoints(robot, [(x, y)])
+    return mission_from_waypoints(robot, [(x, y)], name)
 
-def pose1D_generator(pose_scale = 3, min_dist = 0.5):
+
+def pose1D_generator(pose_scale=3, min_dist=0.5):
     """Generate random 1D pose within certain range
 
     Args:
@@ -217,6 +238,7 @@ def pose1D_generator(pose_scale = 3, min_dist = 0.5):
         float: 1D pose
     """
     return round(random.random() * pose_scale + min_dist, 1)
+
 
 def route_generator(parent: str = "root", name: str = None):
     """ Generate route dict
@@ -230,11 +252,12 @@ def route_generator(parent: str = "root", name: str = None):
     """
     waypoints_size = random.randint(1, 4)
     waypoints = {"waypoints": [{"x": pose1D_generator(), "y": pose1D_generator(), "theta": 0}
-            for _ in range(waypoints_size)]}
+                               for _ in range(waypoints_size)]}
     route_dict = {"route": waypoints, "parent": parent}
     if name is not None:
         route_dict.update({"name": name})
     return route_dict
+
 
 def action_generator(should_fail: bool = False, execution_time: float = 1,
                      parent: str = "root", name: str = None) -> Dict:
@@ -250,16 +273,17 @@ def action_generator(should_fail: bool = False, execution_time: float = 1,
         Dict: action mission node
     """
     action_dict = {"parent": parent,
-                    "action": {"action_type": "dummy_action",
-                    "action_parameters": {"should_fail": should_fail,
-                                            "time": execution_time}}}
+                   "action": {"action_type": "dummy_action",
+                              "action_parameters": {"should_fail": should_fail,
+                                                    "time": execution_time}}}
     if name is not None:
         action_dict.update({"name": name})
     return action_dict
 
-def mission_object_generator(robot: str, mission_tree):
+
+def mission_object_generator(robot: str, mission_tree, timeout=1000):
     """Converts a mission tree into a mission object"""
     return api_objects.MissionObjectV1(
         robot=robot,
         mission_tree=mission_tree,
-        status={})
+        status={}, timeout=timeout)
