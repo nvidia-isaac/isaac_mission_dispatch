@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,35 +26,42 @@ from packages.objects import robot as robot_object
 
 from packages.controllers.mission.tests import test_context
 
+
 class TestDeleteRobot(unittest.TestCase):
     def test_delete_idle_robot(self):
         """ Test if an idle robot is correctly deleted """
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
             # Create the robot
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
-
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
             # Check that the robot has been populated in the database
-            self.assertGreater(len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
+            self.assertGreater(
+                len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
 
             # Delete robot
             ctx.db_client.delete(api_objects.RobotObjectV1, "test01")
-            time.sleep(0.25)
+            time.sleep(10)
 
             # Check to see if the robot is gone from the database
-            self.assertEqual(len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
+            self.assertEqual(
+                len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
 
     def test_delete_on_task_robot(self):
         """ Test if the server kills the robot correctly when the robot is executing a mission """
-        MISSION_DEFAULT_X = 15
-        MISSION_DEFAULT_Y = 15
+        MISSION_DEFAULT_X = 50
+        MISSION_DEFAULT_Y = 50
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot], tick_period=1.0) as ctx:
             # Create the robot
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            self.assertGreater(len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
-            mission = test_context.mission_from_waypoint("test01", MISSION_DEFAULT_X, MISSION_DEFAULT_Y)
+            self.assertGreater(
+                len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
+            mission = test_context.mission_from_waypoint(
+                "test01", MISSION_DEFAULT_X, MISSION_DEFAULT_Y)
             ctx.db_client.create(mission)
 
             # Watch, and break when robot is officially ON_TASK / mission is RUNNING
@@ -69,15 +76,17 @@ class TestDeleteRobot(unittest.TestCase):
             # Robot should not be deleted yet, mission should still be ongoing and therefore robot is still
             # on task.
             self.assertGreater(len(robot_objects), 0)
-            self.assertEqual(robot_objects[0].lifecycle, api_objects.object.ObjectLifecycleV1.PENDING_DELETE)
+            self.assertEqual(
+                robot_objects[0].lifecycle, api_objects.object.ObjectLifecycleV1.PENDING_DELETE)
             for update in ctx.db_client.watch(api_objects.MissionObjectV1):
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
                     break
-            time.sleep(0.25)
+            time.sleep(1)
 
             # The mission is finished, so the robot should be deleted
             robot_objects = ctx.db_client.list(api_objects.RobotObjectV1)
             self.assertEqual(len(robot_objects), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

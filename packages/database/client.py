@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,13 +18,12 @@ SPDX-License-Identifier: Apache-2.0
 """
 
 import json
-from typing import Any, List
+from typing import Any, List, Optional, Dict
 import uuid
-
 import requests
 
 from packages import objects
-from packages.objects.mission import MissionObjectV1
+from packages.objects.mission import MissionObjectV1, MissionRouteNodeV1
 
 
 class DatabaseClient:
@@ -55,9 +54,9 @@ class DatabaseClient:
         if response.status_code != 200:
             raise ValueError(response.text)
 
-    def list(self, object_type: Any) -> List[objects.ApiObject]:
+    def list(self, object_type: Any, params: Optional[Dict] = None) -> List[objects.ApiObject]:
         url = f"{self._url}/{object_type.get_alias()}"
-        response = requests.get(url)
+        response = requests.get(url, params=params)
         if response.status_code != 200:
             raise ValueError(response.text)
         return [object_type(**obj) for obj in json.loads(response.text)]
@@ -84,5 +83,12 @@ class DatabaseClient:
     def cancel_mission(self, name: str):
         url = f"{self._url}/{MissionObjectV1.get_alias()}/{name}/cancel"
         response = requests.post(url)
+        if response.status_code != 200:
+            raise ValueError(response.text)
+
+    def update_mission(self, name: str, update_nodes: Dict[str, MissionRouteNodeV1]):
+        url = f"{self._url}/{MissionObjectV1.get_alias()}/{name}/update"
+        response = requests.post(url, json=update_nodes,
+                                 params={"publisher_id": self._publisher_id})
         if response.status_code != 200:
             raise ValueError(response.text)

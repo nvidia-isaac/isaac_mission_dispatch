@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ limitations under the License.
 SPDX-License-Identifier: Apache-2.0
 """
 load("//bzl:python.bzl", "mission_dispatch_py_binary")
+load("//bzl:python.bzl", "mission_dispatch_py_library")
 load("@python_third_party//:requirements.bzl", "requirement")
 
 mission_dispatch_py_binary(
@@ -49,6 +50,13 @@ py_library(
     ],
 )
 
+mission_dispatch_py_library(
+    name = "mission_examples",
+    srcs = [
+        "mission_examples.py"
+    ],
+)
+
 py_test(
     name = "cancel_mission",
     srcs = [
@@ -56,6 +64,9 @@ py_test(
         ],
     deps = [
         ":test_context",
+    ],
+    tags = [
+        "exclusive"
     ],
     size = "large"
 )
@@ -68,6 +79,23 @@ py_test(
     deps = [
         ":test_context",
     ],
+    tags = [
+        "exclusive"
+    ],
+    size = "large"
+)
+
+py_test(
+    name = "fail_robot",
+    srcs = [
+        "fail_robot.py"
+    ],
+    deps = [
+        ":test_context",
+    ],
+    tags = [
+        "exclusive"
+    ],
     size = "large"
 )
 
@@ -78,6 +106,24 @@ py_test(
     ],
     deps = [
         ":test_context",
+        ":mission_examples",
+    ],
+    tags = [
+        "exclusive"
+    ],
+    size = "large"
+)
+
+py_test(
+    name = "robot",
+    srcs = [
+        "robot.py"
+    ],
+    deps = [
+        ":test_context"
+    ],
+    tags = [
+        "exclusive"
     ],
     size = "large"
 )
@@ -90,6 +136,9 @@ py_test(
     deps = [
         ":test_context",
     ],
+    tags = [
+        "exclusive"
+    ],
     size = "large"
 )
 
@@ -101,6 +150,9 @@ py_test(
     deps = [
         ":test_context",
     ],
+    tags = [
+        "exclusive"
+    ],
     size = "large"
 )
 
@@ -108,6 +160,20 @@ py_test(
     name = "server",
     srcs = [
         "server.py"
+    ],
+    deps = [
+        ":test_context",
+    ],
+    tags = [
+        "exclusive"
+    ],
+    size = "large"
+)
+
+py_test(
+    name = "update_mission",
+    srcs = [
+        "update_mission.py"
     ],
     deps = [
         ":test_context",

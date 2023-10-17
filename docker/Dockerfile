@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ RUN wget --progress=dot:mega https://github.com/bazelbuild/bazel/releases/downlo
 RUN chmod +x /usr/bin/bazel
 
 # Install docker
+RUN apt-get update 
 RUN apt-get install -y \
     ca-certificates \
     curl \

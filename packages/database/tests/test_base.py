@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ from typing import Any, List, Tuple
 import unittest
 
 import packages.objects as api_objects
+from packages.objects.robot import RobotStateV1
 from packages.utils import test_utils
 
 # A label to add to a robot to demonstrate modifing the spec
@@ -193,3 +194,156 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(update_client.lifecycle, api_objects.ObjectLifecycleV1.PENDING_DELETE)
         self.assertEqual(update_controller_client.lifecycle,
                          api_objects.ObjectLifecycleV1.PENDING_DELETE)
+
+    def setup_robots(self):
+        # Robots
+        # -----------------------------------------
+        # name      battery     state       online
+        # carter00  0           IDLE        true
+        # carter01  10          ON_TASK     true
+        # carter02  20          IDLE        false
+        # carter03  30          ON_TASK     false
+        # carter04  40          IDLE        true
+        # carter05  50          ON_TASK     true
+        # carter06  60          IDLE        false
+        # carter07  70          ON_TASK     false
+        # carter08  80          IDLE        true
+        # carter09  90          ON_TASK     true
+
+        robots = [api_objects.RobotObjectV1(status={}, name="carter0" + str(i))
+                  for i in range(0, 10)]
+
+        for robot in robots:
+            self.client.create(robot)
+
+        for i, robot in enumerate(robots):
+            # Battery for each robot to i * 10
+            robot.status.battery_level = i * 10
+
+            # Even numbered robots are IDLE, odd are ON_TASK
+            robot.status.state = RobotStateV1.IDLE if i % 2 == 0 else RobotStateV1.ON_TASK
+
+            # For every two robots, alternate online to true and false
+            # i.e. carter0, carter1 are true, carter2, carter3 are false, etc.
+            robot.status.online = i % 4 <= 1
+
+        for robot in robots:
+            self.controller_client.update_status(robot)
+
+        return robots
+
+    def cleanup_robots(self, robots):
+        for robot in robots:
+            self.controller_client.delete(api_objects.RobotObjectV1, robot.name)
+
+    def test_list_robot_with_battery_state_online(self):
+        # Set up robots
+        robots = self.setup_robots()
+
+        # Should return all if no parameters given
+        all_robots = self.client.list(api_objects.RobotObjectV1)
+        assert len(all_robots) == len(robots)
+
+        # Should work with only min_battery query
+        battery_ge_50 = self.client.list(api_objects.RobotObjectV1, {"min_battery": 50})
+        assert len(battery_ge_50) == 5
+
+        battery_ge_90 = self.client.list(api_objects.RobotObjectV1, {"min_battery": 90})
+        assert len(battery_ge_90) == 1
+        assert robots[9] == battery_ge_90[0]
+
+        battery_ge_91 = self.client.list(api_objects.RobotObjectV1, {"min_battery": 91})
+        assert len(battery_ge_91) == 0
+
+        # Should work with only state query
+        idle_robots = self.client.list(api_objects.RobotObjectV1, {"state": "IDLE"})
+        assert len(idle_robots) == 5
+
+        # Should work with only online query
+        online_robots = self.client.list(api_objects.RobotObjectV1, {"online": True})
+        assert len(online_robots) == 6
+
+        # --- Combination tests ---
+
+        # Get robots that have min_battery >= 55 and IDLE
+        params = {
+            "min_battery": 55,
+            "state": "IDLE"
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 2
+        assert robots[6] in output
+        assert robots[8] in output
+
+        # Get robots that are IDLE and online
+        params = {
+            "state": "IDLE",
+            "online": True
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 3
+        assert robots[0] in output
+        assert robots[4] in output
+        assert robots[8] in output
+
+        # Get robots that have min_battery >= 28 and online
+        params = {
+            "min_battery": 28,
+            "online": True
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 4
+        assert robots[4] in output
+        assert robots[5] in output
+        assert robots[8] in output
+        assert robots[9] in output
+
+        # Get robots that have min_battery >= 55 and IDLE and online
+        params = {
+            "min_battery": 55,
+            "state": "IDLE",
+            "online": True
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 1
+        assert robots[8] == output[0]
+
+        # Test names
+        params = {
+            "names": ["carter01", "carter03", "carter09"]
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 3
+        assert robots[1] in output
+        assert robots[3] in output
+        assert robots[9] in output
+
+        # Clean up
+        self.cleanup_robots(robots)
+
+    def test_list_robot_names(self):
+        robots = self.setup_robots()
+
+        # Test names
+        params: dict[str, Any] = {
+            "names": ["carter01", "carter03", "carter04", "carter09"]
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 4
+        assert robots[1] in output
+        assert robots[3] in output
+        assert robots[4] in output
+        assert robots[9] in output
+
+        # Test names with battery and state
+        params = {
+            "names": ["carter01", "carter03", "carter04", "carter09"],
+            "min_battery": 30,
+            "state": "IDLE"
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 1
+        assert robots[4] == output[0]
+
+        self.cleanup_robots(robots)
+

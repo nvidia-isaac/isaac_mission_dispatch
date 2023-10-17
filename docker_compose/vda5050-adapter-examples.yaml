@@ -15,22 +15,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-version: "3.3"
 services:
-  # Create an MQTT broker
-  mosquitto: 
-    image: eclipse-mosquitto:latest
-    command: 
-      - /bin/sh
-      - -c 
-      - | 
-        sh mosquitto.sh "${MQTT_PORT_TCP}" "${MQTT_PORT_WEBSOCKET}" 
-    network_mode: "host"
-    volumes:
-    - type: bind
-      source: ../packages/utils/test_utils/mosquitto.sh
-      target: /mosquitto.sh
-
   # Create Postgres database
   postgres:
     image: postgres:14.5
@@ -41,12 +26,13 @@ services:
       - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256
     ports:
       - '${POSTGRES_DATABASE_PORT}:${POSTGRES_DATABASE_PORT}'
-    network_mode: "host"
     healthcheck:
       test: pg_isready -U ${POSTGRES_DATABASE_USERNAME}
       interval: 3s
       timeout: 10s
       retries: 5
+    networks:
+      - vda5050-adapter
 
   # Create an instance of mission database
   mission-database: 
@@ -56,19 +42,28 @@ services:
               "--db_port", "${POSTGRES_DATABASE_PORT}", 
               "--db_name", "${POSTGRES_DATABASE_NAME}", 
               "--db_username", "${POSTGRES_DATABASE_USERNAME}", 
-              "--db_password", "${POSTGRES_DATABASE_PASSWORD}"]
-    network_mode: "host"
+              "--db_password", "${POSTGRES_DATABASE_PASSWORD}",
+              "--db_host", postgres,
+              "--address", mission-database]
     depends_on: 
       postgres:
         condition: service_healthy
+    networks:
+      - vda5050-adapter
 
   # Create an instance of mission dispatch  
   mission-dispatch:
     image: ${MISSION_DISPATCH_IMAGE}
-    command: ["--mqtt_port", "${MQTT_PORT_WEBSOCKET}", 
-              "--mqtt_transport", "${MQTT_TRANSPORT}", 
-              "--database_url", "http://localhost:${DATABASE_CONTROLLER_PORT}"]
-    network_mode: "host"
+    depends_on: 
+      - mission-database
+    command: ["--mqtt_host", mosquitto,
+              "--mqtt_port", "${MQTT_PORT_TCP}",
+              "--database_url", "http://mission-database:${DATABASE_CONTROLLER_PORT}",
+              "--mqtt_prefix", uagv/v1/OSRF]
+    networks:
+      - vda5050-adapter
 
-
-
+networks:
+  vda5050-adapter:
+    name: deployment_vda5050-adapter-examples
+    external: true

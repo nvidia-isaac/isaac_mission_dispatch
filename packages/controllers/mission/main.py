@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,9 +39,11 @@ if __name__ == "__main__":
                         help="The prefix to add to all VDA5050 mqtt topics")
     parser.add_argument("--database_url", default="http://localhost:5001",
                         help="The url where the database REST API is hosted")
+    parser.add_argument("--mission_ctrl_url", default=None,
+                        help="The url where the mission control REST API is hosted")
     parser.add_argument("--log_level", default="INFO", choices=LOGGING_LEVELS,
                         help="The minimum level of log messages to print")
-    args = parser.parse_args()
+    args = parser.parse_known_args()[0]
     logger = logging.getLogger("Isaac Mission Dispatch")
     logger.setLevel(args.log_level)
     logger.addHandler(logging.StreamHandler(sys.stderr))
