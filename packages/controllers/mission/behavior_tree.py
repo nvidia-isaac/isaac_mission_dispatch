@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,6 +40,36 @@ def mission2tree_state(type: mission_object.MissionStateV1) -> py_trees.common.S
     else:
         return py_trees.common.Status.FAILURE
 
+
+class ConstantBehaviorNode(py_trees.behaviour.Behaviour):
+    """
+    Constant behavior tree node
+    """
+
+    def __init__(self, name: str, idx: int, const_status=py_trees.common.Status.SUCCESS):
+        print(
+            f"Create a constant node for mission node {idx} with status {const_status}", flush=True)
+        self.idx = idx
+        self.name = name
+        self.const_status = const_status
+        super().__init__(self.name)
+
+    @property
+    def type(self) -> str:
+        return "leaf"
+
+    @property
+    def is_order(self):
+        """Whether this node involves sending VDA5050 orders to the robot"""
+        return True
+
+    def initialise(self):
+        self.status = py_trees.common.Status.RUNNING
+
+    def update(self) -> py_trees.common.Status:
+        return self.const_status
+
+
 class MissionLeafNode(py_trees.behaviour.Behaviour):
     """
     Route/action behavior tree node
@@ -55,6 +85,11 @@ class MissionLeafNode(py_trees.behaviour.Behaviour):
     @property
     def type(self) -> str:
         return "leaf"
+
+    @property
+    def is_order(self):
+        """Whether this node involves sending VDA5050 orders to the robot"""
+        return False
 
     def initialise(self):
         self.status = py_trees.common.Status.RUNNING
@@ -83,6 +118,11 @@ class SequenceBehaviorNode(py_trees.composites.Sequence):
     def type(self) -> str:
         return "control"
 
+    @property
+    def is_order(self):
+        """Whether this node involves sending VDA5050 orders to the robot"""
+        return True
+
 
 class SelectorBehaviorNode(py_trees.composites.Selector):
     """
@@ -97,6 +137,11 @@ class SelectorBehaviorNode(py_trees.composites.Selector):
     @property
     def type(self) -> str:
         return "control"
+
+    @property
+    def is_order(self):
+        """Whether this node involves sending VDA5050 orders to the robot"""
+        return True
 
 
 class MissionBehaviorTree():
@@ -141,6 +186,13 @@ class MissionBehaviorTree():
                                        mission_object.MissionNodeType.ACTION):
                 leaf_node = MissionLeafNode(self.mission, i, status)
                 parent.add_child(leaf_node)
+            elif mission_node.type == mission_object.MissionNodeType.CONSTANT:
+                if mission_node.constant is not None:
+                    if mission_node.constant.success:
+                        status = py_trees.common.Status.SUCCESS
+                    else:
+                        status = py_trees.common.Status.FAILURE
+                    parent.add_child(ConstantBehaviorNode(str(mission_node.name), i, status))
             # Not supported mission node type
             else:
                 self.info("Invalid mission node type")
@@ -153,7 +205,7 @@ class MissionBehaviorTree():
     def post_tick(self):
         # Update all the non-pending control node
         for node in self.root.iterate():
-            if node.name != "root" and node.type == "control":
+            if node.name != "root" and node.is_order:
                 self.mission.status.node_status[node.name].state = \
                     tree2mission_state(node.status)
 

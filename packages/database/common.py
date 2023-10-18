@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -70,7 +70,8 @@ class Database(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def list_objects(self, object_class: objects.ApiObjectType):
+    async def list_objects(self, object_class: objects.ApiObjectType,
+                           query_params: Optional[pydantic.BaseModel] = None):
         pass
 
     @abc.abstractmethod
@@ -100,6 +101,7 @@ class Database(abc.ABC):
     async def get_watcher(self, object_class: objects.ApiObjectType,
                           publisher_id: uuid.UUID) -> Watcher:
         pass
+
 
 class WebServer:
     """ A webserver that hosts REST APIs for accessing a database of api objects """
@@ -200,8 +202,9 @@ class WebServer:
 
 
     def _build_lister(self, object_class: objects.ApiObjectType):
-        async def func():
-            return await self._database.list_objects(object_class)
+        async def func(query_params:                                       # type: ignore
+                       object_class.get_query_params()=fastapi.Depends()): # type: ignore
+            return await self._database.list_objects(object_class, query_params)
         return func
 
     def _build_creator(self, object_class: objects.ApiObjectType):
@@ -278,7 +281,7 @@ class WebServer:
                 if publisher_id is None:
                     publisher_id = uuid.uuid4()
                 obj = await self._database.get_object(object_class, name)
-                ret = method.function(obj, params)
+                ret = await method.function(obj, params)
                 await self._database.update_spec(object_class, name, obj.spec, publisher_id)
                 return ret
             return func
@@ -292,6 +295,11 @@ class WebServer:
                 await self._database.update_spec(object_class, name, obj.spec, publisher_id)
                 return ret
             return func
+
+    def _health_check(self):
+        async def func():
+            return {"status": "Mission Dispatch: Running"}
+        return func
 
     def _register_common_apis(self, app: fastapi.FastAPI):
         for class_name, obj in objects.OBJECT_DICT.items():
@@ -307,6 +315,7 @@ class WebServer:
             app.add_api_route(f"/{class_name}", self._build_creator(obj),
                               description=CREATE_DESCRIPTION.format(object_type=obj.__name__),
                               response_model=obj, methods=["POST"], tags=[class_name])
+        app.add_api_route(f"/health", self._health_check(), methods=["GET"])
 
     def _register_controller_apis(self, app: fastapi.FastAPI):
         for class_name, obj in objects.OBJECT_DICT.items():

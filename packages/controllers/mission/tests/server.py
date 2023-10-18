@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -38,15 +38,17 @@ SCENARIO1_EXPECTED_STATUSES = [
     mission_object.MissionStatusV1(state="COMPLETED", current_node=1),
 ]
 
+
 class TestMissionServer(unittest.TestCase):
     def test_client_update_freq(self):
         """ Test a mission with different update frequencies of the client simulator """
         tick_periods = [1, 0.1, 0.01]
         for tick_period in tick_periods:
             robot = simulator.RobotInit("test01", 0, 0, 0)
-            with test_context.TestContext([robot], tick_period = tick_period) as ctx:
+            with test_context.TestContext([robot], tick_period=tick_period) as ctx:
                 # Create the robot and then the mission
-                ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
+                ctx.db_client.create(
+                    api_objects.RobotObjectV1(name="test01", status={}))
                 time.sleep(0.25)
                 ctx.db_client.create(test_context.mission_from_waypoints("test01",
                                                                          SCENARIO1_WAYPOINTS))
@@ -55,7 +57,8 @@ class TestMissionServer(unittest.TestCase):
                 for expected_state, update in zip(SCENARIO1_EXPECTED_STATUSES,
                                                   ctx.db_client.watch(api_objects.MissionObjectV1)):
                     self.assertEqual(update.status.state, expected_state.state)
-                    self.assertEqual(update.status.current_node, expected_state.current_node)
+                    self.assertEqual(update.status.current_node,
+                                     expected_state.current_node)
 
     def test_restart_from_database(self):
         """ Test if MD can restart from the database """
@@ -63,9 +66,11 @@ class TestMissionServer(unittest.TestCase):
         restart_once = False
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            ctx.db_client.create(test_context.mission_from_waypoints("test01", SCENARIO1_WAYPOINTS))
+            ctx.db_client.create(test_context.mission_from_waypoints(
+                "test01", SCENARIO1_WAYPOINTS))
 
             # Make sure the mission is updated and completed
             completed = False
@@ -87,9 +92,11 @@ class TestMissionServer(unittest.TestCase):
         restart_once = False
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
-            ctx.db_client.create(api_objects.RobotObjectV1(name="test01", status={}))
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            ctx.db_client.create(test_context.mission_from_waypoints("test01", SCENARIO1_WAYPOINTS))
+            ctx.db_client.create(test_context.mission_from_waypoints(
+                "test01", SCENARIO1_WAYPOINTS))
 
             # Make sure the mission is updated and completed
             completed = False
@@ -104,6 +111,7 @@ class TestMissionServer(unittest.TestCase):
                     completed = True
                     break
             self.assertTrue(completed)
+
 
 if __name__ == "__main__":
     unittest.main()

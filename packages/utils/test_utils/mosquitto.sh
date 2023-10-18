@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ fi
 PORT=$1
 PORT_WEBSOCKET=$2
 
-echo "allow_anonymous true" >> $CONFIG_FILE
+echo "allow_anonymous true" > $CONFIG_FILE
 echo "listener $PORT 0.0.0.0" >> $CONFIG_FILE
 echo "listener $PORT_WEBSOCKET" >> $CONFIG_FILE
 echo "protocol websockets" >> $CONFIG_FILE

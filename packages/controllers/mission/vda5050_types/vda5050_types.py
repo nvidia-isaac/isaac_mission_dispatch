@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ from typing import List, Optional
 
 import pydantic
 
-from packages.objects import  mission, robot, common
+from packages.objects import mission, robot, common
 
 
 # Tell pylint to ignore the invalid names. We must use camelCase names because they are specified
@@ -61,6 +61,15 @@ class VDA5050ActionBlockingType(str, enum.Enum):
     HARD = "HARD"
 
 
+class VDA5050InstantActionType(str, enum.Enum):
+    # cancel order
+    CANCEL_ORDER = "cancelOrder"
+
+    @classmethod
+    def values(cls):
+        return [member.value for member in cls]
+
+
 class VDA5050ActionStatus(str, enum.Enum):
     """Action status describe at which stage of the actions lifecycle the action is"""
     # Action is waiting for trigger
@@ -94,10 +103,15 @@ class VDA5050Action(pydantic.BaseModel):
             actionParameters=[VDA5050ActionParameter(key=k, value=v)
                               for k, v in action.action_parameters.items()])
 
+    @property
+    def param_dict(self):
+        return {param.key: param.value for param in self.actionParameters}
+
 
 class VDA5050ActionState(pydantic.BaseModel):
     """VDA5050 Action State, sent from the client to the server"""
     actionId: str
+    actionType: str = ""
     actionDescription: str = ""
     actionStatus: VDA5050ActionStatus = VDA5050ActionStatus.WAITING
     resultDescription: str = ""
@@ -108,12 +122,15 @@ class VDA5050NodePosition(pydantic.BaseModel):
     y: float
     theta: float = 0.0
     mapId: str = ""
+    mapDescription: str = ""
+    allowedDeviationXY: float = 0.0
+    allowedDeviationTheta: float = 0.0
 
 
 class VDA5050NodeState(pydantic.BaseModel):
     nodeId: str
     sequenceId: int
-    release: bool = True
+    released: bool = True
     position: Optional[VDA5050NodePosition]
 
 
@@ -137,7 +154,9 @@ class VDA5050Node(pydantic.BaseModel):
             nodeId=f"{mission_id}-n{mission_node_id}-s{sequence}",
             sequenceId=sequence,
             nodePosition=VDA5050NodePosition(
-                x=pose.x, y=pose.y, theta=pose.theta, mapId=pose.map_id))
+                x=pose.x, y=pose.y, theta=pose.theta, mapId=pose.map_id,
+                allowedDeviationXY=pose.allowedDeviationXY,
+                allowedDeviationTheta=pose.allowedDeviationTheta))
 
     @classmethod
     def from_robot(cls, robot_object: robot.RobotObjectV1, mission_id: str,
@@ -181,6 +200,7 @@ class VDA5050AgvPosition(pydantic.BaseModel):
     y: float
     theta: float
     mapId: str = ""
+    deviationRange: float = 0.0
 
 
 class VDA5050ErrorReference(pydantic.BaseModel):
@@ -285,7 +305,8 @@ class VDA5050Order(pydantic.BaseModel):
                    mission_id: str,
                    mission_node_id: int) -> "VDA5050Order":
         # Create an initial node from the robots current position
-        nodes = [VDA5050Node.from_robot(robot_object, mission_id, mission_node_id)]
+        nodes = [VDA5050Node.from_robot(
+            robot_object, mission_id, mission_node_id)]
         edges = []
         # Add each pose in the route as a node
         if route is not None:
@@ -307,7 +328,8 @@ class VDA5050Order(pydantic.BaseModel):
                     mission_id: str,
                     mission_node_id: int) -> "VDA5050Order":
         # Create an initial node from the robots current position
-        nodes = [VDA5050Node.from_robot(robot_object, mission_id, mission_node_id)]
+        nodes = [VDA5050Node.from_robot(
+            robot_object, mission_id, mission_node_id)]
         # Attach the actions to a vda5050 node
         if action is not None:
             nodes[0].actions += [VDA5050Action.from_mission_action(action,
@@ -319,6 +341,12 @@ class VDA5050Order(pydantic.BaseModel):
             nodes=nodes,
             edges=[])
 
+class VDA5050BatteryState(pydantic.BaseModel):
+    batteryCharge: float
+    batteryVoltage: Optional[float]
+    batteryHealth: Optional[int]
+    charging: bool
+    reach: Optional[int]
 
 class VDA5050OrderInformation(pydantic.BaseModel):
     """ Feedback on the current mission and robot status from the client """
@@ -334,7 +362,18 @@ class VDA5050OrderInformation(pydantic.BaseModel):
     nodeStates: List[VDA5050NodeState]
     edgeStates: List[VDA5050EdgeState]
     actionStates: List[VDA5050ActionState] = []
+    batteryState: Optional[VDA5050BatteryState]
     driving: bool = False
     agvPosition: VDA5050AgvPosition
     errors: List[VDA5050Error] = []
-    informations: List[VDA5050Info] = []
+    information: List[VDA5050Info] = []
+
+
+class VDA5050InstantActions(pydantic.BaseModel):
+    """ Instant Action """
+    headerId: int
+    timestamp: str
+    version: str = "2.0.0"
+    manufacturer: str = ""
+    serialNumber: str = ""
+    instantActions: List[VDA5050Action]
