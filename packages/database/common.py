@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,9 @@ import fastapi
 import pydantic
 import uvicorn
 
-from packages import objects
+from cloud_common import objects
+from cloud_common.objects import common
+from cloud_common.objects.mission import MissionNodeV1
 
 
 LIST_DESCRIPTION = "Returns a list of all {object_type} objects in the database."
@@ -111,6 +113,7 @@ class WebServer:
         self._port = args.port
         self._controller_port = args.controller_port
         self._root_path = args.root_path
+        self._access_log = args.access_log
 
     @classmethod
     def add_parser_args(cls, parser: argparse.ArgumentParser):
@@ -135,7 +138,7 @@ class WebServer:
             prefix: Optional[str] = pydantic.Field(
                 None,
                 description="May be used instead of the \"name\" field. If this is given, the " \
-                            f"object will be given a name of the form " \
+                            "object will be given a name of the form " \
                             "<prefix>-<random id> to ensure uniqueness.")
 
             class Config:
@@ -145,7 +148,7 @@ class WebServer:
                 super().__init__(*args, **kwargs)
 
                 if self.name is not None and self.prefix is not None:
-                    raise ValueError("Cannot have both \"name\" and \"prefix\"")
+                    raise common.ICSUsageError("Cannot have both \"name\" and \"prefix\"")
 
                 # If a prefix is provided, use that to generate the name
                 if self.prefix is not None:
@@ -163,9 +166,10 @@ class WebServer:
             @pydantic.root_validator(pre=True)
             def check_for_status(cls, values):
                 if "status" in values:
-                    raise ValueError("Attempted to update \"status\" with the external API " \
-                                     "hosted on --port. This can only be done from the internal " \
-                                     "API hosted on --controller_port.")
+                    raise common.ICSUsageError(
+                        "Attempted to update \"status\" with the external API " \
+                        "hosted on --port. This can only be done from the internal " \
+                        "API hosted on --controller_port.")
                 return values
 
 
@@ -188,9 +192,10 @@ class WebServer:
             def check_for_spec(cls, values):
                 spec_keys = [key for key in values if key != "status"]
                 if spec_keys:
-                    raise ValueError(f"Attempted to update non \"status\" keys {spec_keys} with " \
-                                     "the internal API hosted on --controller_port. This can " \
-                                     "only be done from the external API hosted on --port.")
+                    raise common.ICSUsageError(
+                        f"Attempted to update non \"status\" keys {spec_keys} with " \
+                        "the internal API hosted on --controller_port. This can " \
+                        "only be done from the external API hosted on --port.")
                 return values
 
             status: object_class.get_status_class()  # type: ignore
@@ -301,6 +306,11 @@ class WebServer:
             return {"status": "Mission Dispatch: Running"}
         return func
 
+    def _behaviors(self):
+        async def func():
+            return MissionNodeV1.get_supported_behaviors()
+        return func
+
     def _register_common_apis(self, app: fastapi.FastAPI):
         for class_name, obj in objects.OBJECT_DICT.items():
             app.add_api_route(f"/{class_name}", self._build_lister(obj),
@@ -308,20 +318,22 @@ class WebServer:
                               response_model=List[obj], tags=[class_name])  # type: ignore
             app.add_api_route(f"/{class_name}/watch", self._build_watcher(obj),
                               description=WATCH_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=obj, tags=[class_name])
+                              response_model=obj, tags=[class_name], include_in_schema=False)
             app.add_api_route(f"/{class_name}/{{name}}", self._build_getter(obj),
                               description=GET_DESCRIPTION.format(object_type=obj.__name__),
                               response_model=obj, tags=[class_name])  # type: ignore
             app.add_api_route(f"/{class_name}", self._build_creator(obj),
                               description=CREATE_DESCRIPTION.format(object_type=obj.__name__),
                               response_model=obj, methods=["POST"], tags=[class_name])
-        app.add_api_route(f"/health", self._health_check(), methods=["GET"])
+        app.add_api_route("/health", self._health_check(), methods=["GET"])
+        app.add_api_route("/behaviors", self._behaviors(), methods=["GET"])
 
     def _register_controller_apis(self, app: fastapi.FastAPI):
         for class_name, obj in objects.OBJECT_DICT.items():
             app.add_api_route(f"/{class_name}/{{name}}", self._build_status_updator(obj),
                               description=UPDATE_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=None, methods=["PUT"], tags=[class_name])
+                              response_model=None, methods=["PUT"], tags=[class_name],
+                              include_in_schema=False)
             app.add_api_route(f"/{class_name}/{{name}}", self._build_hard_deletor(obj),
                               description=DELETE_DESCRIPTION.format(object_type=obj.__name__),
                               response_model=None, methods=["DELETE"], tags=[class_name])
@@ -345,9 +357,11 @@ class WebServer:
     async def _run_servers(self, public_app, private_app):
         await self._database.async_init()
         public_server = uvicorn.Server(uvicorn.Config(public_app, port=self._port,
-                                                      host=self._address))
+                                                      host=self._address,
+                                                      access_log=self._access_log))
         private_server = uvicorn.Server(uvicorn.Config(private_app, port=self._controller_port,
-                                                       host=self._address))
+                                                       host=self._address,
+                                                       access_log=self._access_log))
         await asyncio.wait([public_server.serve(), private_server.serve()],
                            return_when=asyncio.FIRST_COMPLETED)
 
@@ -362,6 +376,13 @@ class WebServer:
         self._register_common_apis(private_app)
         self._register_controller_apis(private_app)
 
+        @public_app.exception_handler(common.ICSUsageError)
+        @private_app.exception_handler(common.ICSUsageError)
+        async def user_error_handler(  # pylint: disable=unused-variable
+                request: fastapi.Request, error: common.ICSError):
+            """ Returns user readable error responses. """
+            err_msg = {"message": str(error), "error_code": type(error).error_code}
+            return fastapi.responses.JSONResponse(status_code=400, content=err_msg)
         # Run the server
         event_loop = asyncio.get_event_loop()
         event_loop.run_until_complete(self._run_servers(public_app, private_app))

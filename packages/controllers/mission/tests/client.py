@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,10 +23,11 @@ import argparse
 import copy
 import datetime
 import json
+import logging
 import re
 import socket
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import paho.mqtt.client as mqtt_client
 import pydantic
@@ -38,11 +39,15 @@ DISTANCE_THRESHOLD = 0.05
 # How long to wait in seconds before trying to reconnect to the mqtt broker
 MQTT_RECONNECT_PERIOD = 0.5
 
+LOGGING_NAME = "Isaac Mission Dispatch Client Simulator"
+
 
 class ActionObject:
     """Action Object"""
 
-    def __init__(self, action_type):
+    def __init__(self, action_type: Union[types.NVActionType,
+                                          types.VDA5050InstantActionType,
+                                          types.NVInstantActionType]):
         self._action_type = action_type
         self._status = types.VDA5050ActionStatus.WAITING
 
@@ -69,20 +74,25 @@ class ActionObject:
         pass
 
 
-class ActionServer(ActionObject):
+class DummyActionServer(ActionObject):
     """Represents an action server that executes action and sends feedbacks"""
 
-    def __init__(self, robot_name):
+    def __init__(self):
         self._should_fail = False
-        self._completed_time = float('inf')
-        self._robot_name = robot_name
-        super().__init__("dummy_action")
+        self._completed_time = float("inf")
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.DUMMY_ACTION)
 
-    def start(self, should_fail: bool = False, execution_time: float = 1):
+    def start(self, params):
         # Determine the time when the mission will fail/finish
-        self._should_fail = should_fail
-        self._completed_time = time.time() + execution_time
-        self._status = types.VDA5050ActionStatus.RUNNING
+        self.logger.info("Start dummy action")
+        if "should_fail" in params and "time" in params:
+            self._should_fail = json.loads(params["should_fail"])
+            self._completed_time = time.time() + float(params["time"])
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FAILED
+            self.logger.info("Missing params in action {}")
 
     def update_status(self):
         # If this has been running for at least execution_time
@@ -108,6 +118,71 @@ class CancelOrderInstantActionServer(ActionObject):
 
     def set_action_id(self, action_id: str):
         self.action_id = action_id
+
+
+class TeleopActionServer(ActionObject):
+    """An action server that executes order cancelation"""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.PAUSE_ORDER)
+
+    def start(self, params=None):
+        self.logger.info("Start teleop action")
+        self._status = types.VDA5050ActionStatus.RUNNING
+        self.robot.pause_order = True
+
+    def update_status(self):
+        if self.robot.pause_order:
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FINISHED
+
+
+class MapLoadActionServer(ActionObject):
+    """An action server that executes order cancelation"""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.LOAD_MAP)
+
+    def start(self, params):
+        self.logger.info("Start map loading action")
+        self._status = types.VDA5050ActionStatus.RUNNING
+        # Simulate map loading for 1s
+        self._completed_time = time.time() + 1
+        self.robot.state.agvPosition.mapId = params["map_id"]
+
+    def update_status(self):
+        if time.time() < self._completed_time:
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FINISHED
+        return self._status
+
+
+class DockingActionServer(ActionObject):
+    """An action server that executes order cancelation"""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.DOCK_ROBOT)
+
+    def start(self, params=None):
+        self.logger.info("Start docking action")
+        self._status = types.VDA5050ActionStatus.RUNNING
+        # Simulate dorking for 5s
+        self._completed_time = time.time() + 5
+
+    def update_status(self):
+        if time.time() < self._completed_time:
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FINISHED
+        return self._status
 
 
 class RobotInit:
@@ -142,8 +217,9 @@ class Robot:
     """Represents and handles the movement of a simulated robot"""
 
     def __init__(self, init: RobotInit, client: mqtt_client.Client, speed: float,
-                 tick_period: float = 0.25, mqtt_prefix: str = "uagv/v1",
+                 tick_period: float = 0.25, mqtt_prefix: str = "uagv/v2/Company",
                  metrics_dir: Optional[str] = None, fail_as_warning: bool = False):
+        self.logger = logging.getLogger(LOGGING_NAME)
         self.name = init.name
         self.order: Optional[types.VDA5050Order] = None
         self.state = types.VDA5050OrderInformation(
@@ -168,15 +244,26 @@ class Robot:
         self.time_to_next_failure = 0
         self.speed = speed
         self.tick_period = tick_period
+        self.pause_order = False
         self._current_node = 0
         self._current_action_id = 0
-        self._action_server = ActionServer(self.name)
         self._mqtt_prefix = mqtt_prefix
         self._metric: Dict = {}
         self._metrics: List = []
         self._save_metrics = False
         self._metrics_dir = metrics_dir
         self._cancel_order_action_server = CancelOrderInstantActionServer()
+        self._dummy_action_server = DummyActionServer()
+        self._map_load_action_server = MapLoadActionServer(robot=self)
+        self._teleop_action_server = TeleopActionServer(robot=self)
+        self._docking_action_server = DockingActionServer(robot=self)
+
+    @property
+    def action_server_triggered(self):
+        return self._map_load_action_server.triggered or \
+            self._dummy_action_server.triggered or \
+            self._teleop_action_server.triggered or \
+            self._docking_action_server.triggered
 
     def publish_state(self):
         self.state.timestamp = datetime.datetime.now().isoformat()
@@ -201,9 +288,20 @@ class Robot:
                 self.state.agvPosition.y += direction * distance
                 return True
 
+            # Are we still moving in the theta direction?
+            if abs(target_node.nodePosition.theta - self.state.agvPosition.theta) > 0.01:
+                if target_node.nodePosition.theta > self.state.agvPosition.theta:
+                    direction = 1
+                else:
+                    direction = -1
+                delta = min(abs(self.state.agvPosition.theta - target_node.nodePosition.theta),
+                            self.speed * self.tick_period)
+                self.state.agvPosition.theta += direction * delta
+                return True
+
         # We have reached the target node
-        if self._current_action_id == 0 and not self._action_server.triggered:
-            self.info(f"Reached node {target_node.nodeId}")
+        if self._current_action_id == 0 and not self.action_server_triggered:
+            self.logger.info("Reached node %s", target_node.nodeId)
             self.state.nodeStates.pop(0)
             self.state.lastNodeSequenceId = target_node.sequenceId
             self.state.lastNodeId = target_node.nodeId
@@ -241,13 +339,13 @@ class Robot:
 
             # Fail if FATAL, but keep going on WARNING
             if e_level == types.VDA5050ErrorLevel.FATAL:
-                self.info(f"failed mission {self.order.orderId}")
+                self.logger.info("failed mission %s", self.order.orderId)
                 self.update_task_duration()
                 return
 
         # Check if the cancel order instant action is triggered
         if self._cancel_order_action_server.triggered:
-            self.info(f"cancel order {self.order.orderId}")
+            self.logger.info("cancel order %s", self.order.orderId)
             self.state.nodeStates = []
             self.state.edgeStates = []
             for action_state in self.state.actionStates:
@@ -259,51 +357,45 @@ class Robot:
             self.update_task_duration()
             return
 
+        # Check if teleop is triggered
+        if self.pause_order:
+            return
+
         # Get the next node we are trying to get to
+        # To simulate Mission Client behavior, ignore nodePosition of first node
         target_node = self.order.nodes[self._current_node]
-        if self.move(target_node):
+        if self._current_node > 0 and self.move(target_node):
             return
 
         # Check if this node contains actions
         if self._current_action_id < len(target_node.actions):
             target_action = target_node.actions[self._current_action_id]
-            if self._action_server.triggered:
-                self._action_server.update_status()
-                if self._action_server.finished:
-                    self.info(f"Finished action {target_action.actionId}")
+            action_server = self.get_action_server(target_action.actionType)
+            # Check if the server is triggered
+            if action_server.triggered:
+                action_server.update_status()
+                if action_server.finished:
+                    self.logger.info("Finished action %s",
+                                     target_action.actionId)
                     self._current_action_id += 1
                     self.update_action_state(target_action.actionId,
                                              types.VDA5050ActionStatus.FINISHED)
-                    self._action_server.reset()
+                    action_server.reset()
                 else:
-                    if self._action_server.failed:
+                    if action_server.failed:
                         self.state.errors.append(
                             types.VDA5050Error(errorLevel=types.VDA5050ErrorLevel.FATAL,
                                                errorReferences=[types.VDA5050ErrorReference(
                                                    referenceKey="action_id",
                                                    referenceValue=target_action.actionId)],
                                                errorDescription="Action failure"))
-                        self._action_server.reset()
+                        action_server.reset()
                         self.update_task_duration()
                     self.update_action_state(target_action.actionId,
-                                             self._action_server.get_status)
+                                             action_server.get_status)
             else:
-                if target_action.actionType == "load_map":
-                    self._action_server.start()
-                    self.info(
-                        f"Started map loading action {target_action.actionId} for map with id: \
-                            {target_action.param_dict['map_id']}")
-                    self.state.agvPosition.mapId = target_action.param_dict['map_id']
-                elif target_action.actionParameters is not None and \
-                    'should_fail' in target_action.param_dict and \
-                        'time' in target_action.param_dict:
-                    self._action_server.start(json.loads(target_action.param_dict['should_fail']),
-                                              float(target_action.param_dict['time']))
-                    self.info(f"Started action {target_action.actionId}")
-                else:
-                    self._action_server.start(should_fail=True)
-                    self.info(
-                        f"Action {target_action.actionId} failed due to lack of parameters")
+                # Start action server
+                action_server.start(target_action.param_dict)
 
         else:
             self._current_action_id = 0
@@ -312,6 +404,15 @@ class Robot:
         # Check if the current mission is completed
         if self._current_node == order_size:
             self.update_task_duration()
+
+    def get_action_server(self, action_type: str):
+        if action_type == types.NVActionType.LOAD_MAP.value:
+            return self._map_load_action_server
+        elif action_type == types.NVActionType.PAUSE_ORDER.value:
+            return self._teleop_action_server
+        elif action_type == types.NVActionType.DOCK_ROBOT.value:
+            return self._docking_action_server
+        return self._dummy_action_server
 
     def update_task_duration(self):
         self._metric["duration"] = round(
@@ -337,7 +438,7 @@ class Robot:
             self._save_metrics = False
 
     def send_order(self, order: types.VDA5050Order):
-        self.info(f"Got order {order.orderId}")
+        self.logger.info("Got order %s", order.orderId)
         new_order = True
         if self.order is not None:
             new_order = self.order.orderId != order.orderId
@@ -359,7 +460,8 @@ class Robot:
             self.state.actionStates = []
             for node in self.order.nodes:
                 self.state.nodeStates += [node.to_node_state()]
-                self.state.actionStates += [types.VDA5050ActionState(actionId=action.actionId)
+                self.state.actionStates += [types.VDA5050ActionState(actionId=action.actionId,
+                                                                     actionType=action.actionType)
                                             for action in node.actions]
             self.state.edgeStates = [edge.to_edge_state()
                                      for edge in self.order.edges]
@@ -372,7 +474,7 @@ class Robot:
         self.publish_state()
 
     def send_instant_action(self, instant_actions: types.VDA5050InstantActions):
-        self.info(f"Got an instant action")
+        self.logger.info("Got an instant action")
         current_action_ids = [
             action_state.actionId for action_state in self.state.actionStates]
         for action in instant_actions.instantActions:
@@ -386,10 +488,20 @@ class Robot:
                 self._cancel_order_action_server.set_action_id(action.actionId)
                 self._cancel_order_action_server.update_status(
                     types.VDA5050ActionStatus.RUNNING)
+                self.logger.info("Running %s instant action",
+                                 action.actionType)
 
-    def info(self, message: str):
-        print(f"[Isaac Mission Dispatch Client Simulator] | INFO: "
-              f"[{self.name}] {message}", flush=True)
+            elif action.actionType == types.NVInstantActionType.START_TELEOP:
+                self.pause_order = True
+                self.state.actionStates[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
+                self.publish_state()
+                self.logger.info("Finished %s Teleop", action.actionType)
+
+            elif action.actionType == types.NVInstantActionType.STOP_TELEOP:
+                self.pause_order = False
+                self.state.actionStates[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
+                self.publish_state()
+                self.logger.info("Finished %s Teleop", action.actionType)
 
 
 def robot_parser(spec: str) -> RobotInit:
@@ -413,7 +525,7 @@ def robot_parser(spec: str) -> RobotInit:
                                          \"name,x,y,theta\", \"name,x,y,theta,map_id\",
                                          \"name,x,y,theta,map_id,failure_period\", or
                                          \"name,x,y,theta,map_id,failure_period,battery\", or
-                                         \"name,x,y,theta,map_id,failure_period,battery,manufacturer, 
+                                         \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
                                          serial_number\"""")
     return RobotInit(name, float(x), float(y), float(theta), map_id, int(failure_period),
                      float(battery), manufacturer, serial_number)
@@ -424,9 +536,13 @@ class Simulator:
 
     def __init__(self, robots: List[RobotInit], speed: float, mqtt_host: str = "localhost",
                  mqtt_transport: str = "tcp", mqtt_ws_path: Optional[str] = None,
-                 mqtt_port: int = 1883, mqtt_prefix: str = "uagv/v1", tick_period: float = 0.25,
-                 metrics_dir: Optional[str] = None,
-                 fail_as_warning: bool = False):
+                 mqtt_port: int = 1883, mqtt_prefix: str = "uagv/v2/Company",
+                 tick_period: float = 0.25, metrics_dir: Optional[str] = None,
+                 fail_as_warning: bool = False, log_level: str = "WARNING"):
+        self.logger = logging.getLogger(LOGGING_NAME)
+        self.logger.setLevel(log_level)
+        logging.basicConfig(level=log_level,
+                            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.mqtt_prefix = mqtt_prefix
         self.client = self._connect_to_mqtt(
             mqtt_host, mqtt_port, mqtt_transport, mqtt_ws_path)
@@ -450,12 +566,13 @@ class Simulator:
                 client.connect(host, port)
                 connected = True
             except (ConnectionRefusedError, ConnectionResetError):
-                print("Failed to connect to mqtt broker, retrying in "
-                      f"{MQTT_RECONNECT_PERIOD}s")
+                self.logger.info(
+                    "Failed to connect to mqtt broker, retrying in %s s", MQTT_RECONNECT_PERIOD)
                 time.sleep(MQTT_RECONNECT_PERIOD)
             except socket.gaierror:
-                print(f"Could not resolve mqtt hostname {host}, retrying in "
-                      f"{MQTT_RECONNECT_PERIOD}s")
+                self.logger.info(
+                    "Could not resolve mqtt hostname %s, retrying in %s s",
+                    host, MQTT_RECONNECT_PERIOD)
                 time.sleep(MQTT_RECONNECT_PERIOD)
         return client
 
@@ -472,8 +589,8 @@ class Simulator:
 
         # Ignore unkown robots
         if robot not in self.robots:
-            print(
-                f"WARNING: Got {topic_name} for unrecognized robot \"{robot}\"", flush=True)
+            self.logger.info(
+                "Got %s for unrecognized robot %s", topic_name, robot)
             return
 
         # Attempt to decode and use the message
@@ -481,8 +598,7 @@ class Simulator:
             func = getattr(self.robots[robot], func_name)
             func(topic_type(**json.loads(msg.payload)))
         except (json.decoder.JSONDecodeError, pydantic.error_wrappers.ValidationError) as error:
-            print(
-                f"WARNING: Ignoring badly formed message: {error}", flush=True)
+            self.logger.warning("Ignoring badly formed message: %s", error)
 
     def _mqtt_on_message(self, client, userdata, msg):
         # Decode messages
@@ -501,7 +617,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--robots", nargs="+",
                         type=robot_parser, required=True)
-    parser.add_argument("--fail_as_warning", action='store_true',
+    parser.add_argument("--fail_as_warning", action="store_true",
                         help="Treat failures as warnings.  Used with failure_period")
     parser.add_argument("--speed", type=float, default=1.0)
     parser.add_argument("--mqtt_host", default="localhost",
@@ -512,12 +628,15 @@ if __name__ == "__main__":
                         help="Set transport mechanism as websockets or raw tcp")
     parser.add_argument("--mqtt_ws_path", default=None,
                         help="The path for the websocket if 'mqtt_transport' is 'websockets'")
-    parser.add_argument("--mqtt_prefix", default="uagv/v1",
+    parser.add_argument("--mqtt_prefix", default="uagv/v2/RobotCompany",
                         help="The MQTT topic prefix")
     parser.add_argument("--tick_period", default=0.25, type=float,
                         help="The tick period of the simulator")
     parser.add_argument("--metrics_dir", default=None,
                         help="Log dir for robot metrics")
+    parser.add_argument("--log_level", default="INFO",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="The minimum level of log messages to print")
     args = parser.parse_args()
     sim = Simulator(**vars(args))
     sim.run()

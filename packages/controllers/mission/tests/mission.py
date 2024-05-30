@@ -18,11 +18,12 @@ SPDX-License-Identifier: Apache-2.0
 """
 import time
 import unittest
+import math
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
-from packages.objects import robot as robot_object
+from cloud_common.objects import mission as mission_object
+from cloud_common.objects import robot as robot_object
 
 from packages.controllers.mission.tests import test_context
 from packages.controllers.mission.tests import mission_examples
@@ -194,6 +195,31 @@ class TestMissions(unittest.TestCase):
                 if update.status.state == mission_object.MissionStateV1.FAILED:
                     self.assertEqual(update.status.failure_reason,
                                      expected_status.failure_reason)
+
+    def test_mission_move_node(self):
+        """ Test sending a mission with move nodes """
+        robot = simulator.RobotInit("test01", 1, 1, math.pi/4)
+        move_mission = [test_context.move_generator(move={"distance": 1}), 
+        test_context.move_generator(move={"rotation": math.pi/4})]
+        with test_context.TestContext([robot]) as ctx:
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(3)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", move_mission))
+
+            # Make sure the mission is updated and completed
+            for update in ctx.db_client.watch(api_objects.MissionObjectV1):
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    break
+
+            # Make sure the robot is at the last position in the list of waypoints
+            updated_robot_status = ctx.db_client.get(
+                api_objects.RobotObjectV1, "test01").status
+            self.assertAlmostEqual(updated_robot_status.pose.x, 1.71, places=2)
+            self.assertAlmostEqual(updated_robot_status.pose.y, 1.71, places=2)
+            self.assertAlmostEqual(updated_robot_status.pose.theta, math.pi/2, places=2)
 
 
 if __name__ == "__main__":

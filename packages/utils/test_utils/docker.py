@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import re
 import subprocess
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import uuid
 import time
 
@@ -59,8 +59,8 @@ def get_container_ip(name: str) -> str:
                              stdout=subprocess.PIPE, check=True)
     return process.stdout.decode("utf-8")
 
-def run_docker_target(bazel_target: str, args: List[str] = None,
-                      docker_args: List[str] = None,
+def run_docker_target(bazel_target: str, args: Union[List[str], None] = None,
+                      docker_args: Union[List[str], None] = None,
                       start_timeout: float = 120,
                       delay: int = 0) -> Tuple[subprocess.Popen, str]:
     # Set default arguments
@@ -84,21 +84,21 @@ def run_docker_target(bazel_target: str, args: List[str] = None,
 
     # Get the entrypoint command
     result = subprocess.run(["docker", "inspect", "-f", "{{.Config.Entrypoint}}", image_hash],
-                            stdout=subprocess.PIPE, check=True).stdout.decode('utf-8')
+                            stdout=subprocess.PIPE, check=True).stdout.decode("utf-8")
     args = result[1:-2].split(" ") + args
     if delay != 0:
         args = ["sleep", str(delay), ";"] + args
 
     # Run a the container inside a special bash script that will exit if
     # the calling process dies, so the container will always exit
-    name = f'bazel-test-{str(uuid.uuid4())}'
+    name = f"bazel-test-{str(uuid.uuid4())}"
     script = SH_TEMPLATE.replace("COMMAND", " ".join(args))
     docker_cmd = ["docker", "run", "-i", "--rm", "--entrypoint", "sh", "--name", name]
     if docker_args is not None:
         docker_cmd.extend(docker_args)
     docker_cmd.extend([image_hash, "-c", script])
     print(" ".join(docker_cmd), flush=True)
-    process = subprocess.Popen(docker_cmd, stdin=subprocess.PIPE)
+    process = subprocess.Popen(docker_cmd, stdin=subprocess.PIPE) # pylint: disable=consider-using-with
     try:
         wait_for_container(name, timeout=start_timeout)
         address = get_container_ip(name).strip()

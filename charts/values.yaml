@@ -30,7 +30,7 @@ dbHostName: postgres-db-postgresql
 # The port of the Postgres database that Mission Dispatch will connect to
 dbPort: 5432
 # The hostname of mission dispatch server
-hostDomainName: www.example.com
+hostDomainName: stg.isaac-amr.nvidia.com
 
 # Default Nginx Ingress Annotations
 # Nginx Ingress Controller Github: https://github.com/kubernetes/ingress-nginx

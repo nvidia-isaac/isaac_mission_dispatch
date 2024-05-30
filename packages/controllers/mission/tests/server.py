@@ -19,9 +19,9 @@ SPDX-License-Identifier: Apache-2.0
 import time
 import unittest
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
+from cloud_common.objects import mission as mission_object
 from packages.controllers.mission.tests import test_context
 
 # Definition for mission `SCENARIO1` with multiple waypoints

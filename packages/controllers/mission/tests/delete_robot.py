@@ -19,10 +19,10 @@ SPDX-License-Identifier: Apache-2.0
 import time
 import unittest
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
-from packages.objects import robot as robot_object
+from cloud_common.objects import mission as mission_object
+from cloud_common.objects import robot as robot_object
 
 from packages.controllers.mission.tests import test_context
 
@@ -70,16 +70,17 @@ class TestDeleteRobot(unittest.TestCase):
                     break
 
             ctx.db_client.delete(api_objects.RobotObjectV1, "test01")
-            time.sleep(0.25)
             robot_objects = ctx.db_client.list(api_objects.RobotObjectV1)
 
-            # Robot should not be deleted yet, mission should still be ongoing and therefore robot is still
-            # on task.
+            # Robot should not be deleted yet
             self.assertGreater(len(robot_objects), 0)
             self.assertEqual(
                 robot_objects[0].lifecycle, api_objects.object.ObjectLifecycleV1.PENDING_DELETE)
             for update in ctx.db_client.watch(api_objects.MissionObjectV1):
-                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                # mission should still be set to failed once the robot is pending delete
+                if update.status.state.done:
+                    self.assertEqual(update.status.state,
+                                     mission_object.MissionStateV1.FAILED)
                     break
             time.sleep(1)
 

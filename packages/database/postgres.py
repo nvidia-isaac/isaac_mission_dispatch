@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,10 +17,11 @@ limitations under the License.
 SPDX-License-Identifier: Apache-2.0
 """
 import argparse
+import datetime
 import logging
 import sys
 import time
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Union
 import uuid
 import enum
 
@@ -29,11 +30,12 @@ import pydantic
 import psycopg
 from psycopg import sql
 
-from packages import objects
 from packages.database import common
 import traceback
 
-from packages.objects.robot import RobotObjectV1
+from cloud_common import objects
+from cloud_common.objects.robot import RobotObjectV1
+from cloud_common.objects.mission import MissionObjectV1
 
 # How long to wait in seconds before trying to reconnect to the Postgres database
 POSTGRES_RECONNECT_PERIOD = 0.5
@@ -55,6 +57,9 @@ async def initialize_database(connection: psycopg.AsyncConnection):
     await cursor.execute("CREATE INDEX IF NOT EXISTS battery_index " + \
                          f"ON {RobotObjectV1.table_name()} " + \
                          "(((status->'battery_level')::float));")
+    await cursor.execute("CREATE INDEX IF NOT EXISTS mission_time_index " + \
+                         f"ON {MissionObjectV1.table_name()} " + \
+                         "((status->>'start_timestamp'));")
     await connection.commit()
 
 
@@ -156,7 +161,8 @@ class PostgresDatabase(common.Database):
     async def async_init(self):
         await self._get_connection()
 
-    async def _get_connection(self) -> psycopg.AsyncConnection:
+    async def _get_connection(self) -> Union[psycopg.AsyncConnection, Any]:
+        # pylint: disable=return-value
         if self._connection is None:
             connected = False
             while not connected:
@@ -168,7 +174,7 @@ class PostgresDatabase(common.Database):
                     self._logger.warning(
                         "Could not connect to Postgres, retry in %ss", POSTGRES_RECONNECT_PERIOD)
                     time.sleep(POSTGRES_RECONNECT_PERIOD)
-        return self._connection
+        return self._connection # pylint: disable=return-value
 
     async def _notify(self, cursor, table_name: str, name: str,
                       lifecycle: str, publisher_id: uuid.UUID):
@@ -191,19 +197,25 @@ class PostgresDatabase(common.Database):
         if query_params and object_class.get_query_map():
             query_map = object_class.get_query_map()
             params_list = []
+            extra_clause = ""
             for param, value in query_params:
-                if value is not None:
+                if param == "most_recent" and value is not None:
+                    extra_clause = query_map[param].format(str(value))
+                elif value is not None:
                     if isinstance(value, list):
                         value_str = "('" + "', '".join(value) + "')"
                     elif isinstance(value, enum.Enum):
                         value_str = str(value.value)
                     elif isinstance(value, bool):
                         value_str = str(value).lower()
+                    elif isinstance(value, datetime.datetime):
+                        value_str = value.isoformat()
                     else:
                         value_str = str(value)
                     params_list.append(query_map[param].format(value_str))
             if params_list:
                 query += " WHERE " + " AND ".join(params_list)
+            query += extra_clause
         query += ";"
 
         connection = await self._get_connection()
@@ -260,7 +272,7 @@ class PostgresDatabase(common.Database):
             await connection.rollback()
             raise fastapi.HTTPException(
                 400,
-                f"Object {obj.get_alias()} with name {obj.name} already exists")
+                f"Object {obj.get_alias()} with name {obj.name} already exists") # pylint: disable=raise-missing-from
         except Exception as err:  # pylint: disable=broad-except
             self._logger.error("Exit: %s", err)
             traceback.print_exc()
@@ -332,6 +344,8 @@ def main():
                         help="The hostname of the postgres server")
     parser.add_argument("--db_port", default=5432, type=int,
                         help="The port to connect to on the postgres server")
+    parser.add_argument("--access_log", action="store_true",
+                        help="This controls whether Uvicorn access logs are emitted")
     db_password_group = parser.add_mutually_exclusive_group()
     db_password_group.add_argument("--db_password", default="postgres",
                                    help="The postgres password to use")
@@ -340,7 +354,7 @@ def main():
     args = parser.parse_args()
 
     if args.db_password_file is not None:
-        with open(args.db_password_file) as file:
+        with open(args.db_password_file, encoding="utf-8") as file:
             db_password = file.read()
     else:
         db_password = args.db_password

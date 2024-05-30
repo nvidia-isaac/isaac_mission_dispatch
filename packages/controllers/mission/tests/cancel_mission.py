@@ -19,10 +19,11 @@ SPDX-License-Identifier: Apache-2.0
 import time
 import unittest
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
-from packages.objects import robot as robot_object
+from cloud_common.objects import mission as mission_object
+from cloud_common.objects import robot as robot_object
+from cloud_common.objects import common
 
 from packages.controllers.mission.tests import test_context
 
@@ -320,7 +321,7 @@ class TestCancelMissions(unittest.TestCase):
                     break
 
             # Cancel the mission
-            with self.assertRaises(ValueError):
+            with self.assertRaises(common.ICSUsageError):
                 ctx.db_client.cancel_mission(test_mission.name)
 
 if __name__ == "__main__":

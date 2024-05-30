@@ -19,22 +19,41 @@ SPDX-License-Identifier: Apache-2.0
 import datetime
 import enum
 from typing import Any, Dict, List, Optional
-from fastapi import Query
+
 import pydantic
+from fastapi import Query
 from pydantic import Field
-from packages.objects import common, object
+
+from cloud_common.objects import common, object
 
 
 class RobotStateV1(enum.Enum):
+    """Robot state
+    """
     IDLE = "IDLE"
     ON_TASK = "ON_TASK"
     # TODO(danyu): Update robot state to charging once charging actions are ready
     CHARGING = "CHARGING"
     MAP_DEPLOYMENT = "MAP_DEPLOYMENT"
+    TELEOP = "TELEOP"
 
     @property
     def running(self):
-        return self in (RobotStateV1.ON_TASK, RobotStateV1.MAP_DEPLOYMENT)
+        return self in (RobotStateV1.ON_TASK, RobotStateV1.MAP_DEPLOYMENT, RobotStateV1.CHARGING)
+
+    @property
+    def can_switch_teleop(self):
+        return self in (RobotStateV1.IDLE, RobotStateV1.ON_TASK,
+                        RobotStateV1.MAP_DEPLOYMENT, RobotStateV1.TELEOP)
+
+    @property
+    def can_deploy_map(self):
+        return self in (RobotStateV1.IDLE, RobotStateV1.CHARGING)
+
+
+class RobotTeleopActionV1(enum.Enum):
+    START = "START"
+    STOP = "STOP"
 
 
 class RobotSoftwareVersionV1(pydantic.BaseModel):
@@ -49,7 +68,7 @@ class RobotHardwareVersionV1(pydantic.BaseModel):
 
 class RobotBatterySpecV1(pydantic.BaseModel):
     """Represents the specs of the robot's battery."""
-    critical_level: float = 0.1
+    critical_level: float = 10.0
     recommended_minimum: Optional[float] = None
     recommended_maximum: Optional[float] = None
 
@@ -78,6 +97,9 @@ class RobotSpecV1(pydantic.BaseModel):
         datetime.timedelta(seconds=30),
         description="The window of time after the dispatch gets a message from a robot for a \
                      robot to be considered online")
+    switch_teleop: bool = pydantic.Field(
+        False, description="Toggle the mode of the robot to TELEOP."
+    )
 
 
 class RobotQueryParamsV1(pydantic.BaseModel):
@@ -107,7 +129,7 @@ class RobotObjectV1(RobotSpecV1, object.ApiObject):
 
     @classmethod
     def default_spec(cls) -> Dict:
-        return RobotSpecV1().dict()
+        return RobotSpecV1().dict()  # type: ignore
 
     @classmethod
     def get_query_params(cls) -> Any:
@@ -122,3 +144,21 @@ class RobotObjectV1(RobotSpecV1, object.ApiObject):
             "state": "status->>'state' = '{}'",
             "online": "status->>'online' = '{}'"
         }
+
+    @classmethod
+    def get_methods(cls) -> List[object.ApiObjectMethod]:
+        return [
+            object.ApiObjectMethod(
+                name="teleop", description="This endpoint is to place the robot into teleop or \
+                    to take the robot out of teleop.",
+                function=cls.teleop,
+                params=RobotTeleopActionV1)
+        ]
+
+    async def teleop(self, teleop: RobotTeleopActionV1):
+        if not self.status.state.can_switch_teleop:
+            raise common.ICSUsageError(
+                f"Robot {self.name} is in {self.status.state} and request cannot be satisfied.")
+        self.switch_teleop = (teleop == RobotTeleopActionV1.START)
+        return teleop.value + " teleop action received."
+

@@ -20,11 +20,12 @@ SPDX-License-Identifier: Apache-2.0
 # This repository implements data types and logic specified in the VDA5050 protocol, which is
 # specified here https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md
 import enum
+import math
 from typing import List, Optional
 
 import pydantic
 
-from packages.objects import mission, robot, common
+from cloud_common.objects import mission, robot, common
 
 
 # Tell pylint to ignore the invalid names. We must use camelCase names because they are specified
@@ -70,6 +71,22 @@ class VDA5050InstantActionType(str, enum.Enum):
         return [member.value for member in cls]
 
 
+class NVInstantActionType(str, enum.Enum):
+    START_TELEOP = "startTeleop"
+    STOP_TELEOP = "stopTeleop"
+
+    @classmethod
+    def values(cls):
+        return [member.value for member in cls]
+
+
+class NVActionType(str, enum.Enum):
+    DUMMY_ACTION = "dummy_action"
+    LOAD_MAP = "load_map"
+    PAUSE_ORDER = "pause_order"
+    DOCK_ROBOT = "dock_robot"
+
+
 class VDA5050ActionStatus(str, enum.Enum):
     """Action status describe at which stage of the actions lifecycle the action is"""
     # Action is waiting for trigger
@@ -84,6 +101,10 @@ class VDA5050ActionStatus(str, enum.Enum):
     FINISHED = "FINISHED"
     # Action could not be performed for whatever reason
     FAILED = "FAILED"
+
+    @property
+    def done(self):
+        return self in (self.FINISHED, self.FAILED)
 
 
 class VDA5050Action(pydantic.BaseModel):
@@ -169,6 +190,49 @@ class VDA5050Node(pydantic.BaseModel):
                 "y": robot_object.status.pose.y,
                 "theta": robot_object.status.pose.theta})
 
+    @classmethod
+    def from_move(cls, robot_object: robot.RobotObjectV1, move: mission.MissionMoveNodeV1,
+                  mission_id: str, mission_node_id: int = 0, sequence: int = 0) -> "VDA5050Node":
+        """
+        Create a VDA5050Node instance based on the robot's current status and a movement command.
+
+        Args:
+        - robot_object: Instance of robot.RobotObjectV1 representing the current robot status.
+        - move: Instance of mission.MissionMoveNodeV1 with the robot's movement command.
+        - mission_id: String identifier of the mission.
+        - mission_node_id: Integer for the node ID in the mission (default is 0).
+        - sequence: Integer for the sequence number of this node in the mission (default is 0).
+
+        Returns:
+        - A VDA5050Node instance representing the robot's status after executing the move.
+
+        This method calculates the robot's new position (x, y) and orientation after executing
+        a movement command. The command can be a linear movement (distance) or a rotation. If the
+        command includes a distance, it calculates the new (x, y) position based on the current
+        position and orientation. If it includes a rotation, the robot's orientation is updated.
+        The method then returns a VDA5050Node instance with the updated position and orientation.
+        """
+        # Current position and orientation of the robot
+        x = robot_object.status.pose.x
+        y = robot_object.status.pose.y
+        theta = robot_object.status.pose.theta
+
+        # Update position if there's a distance to move
+        if move.distance:
+            # The cosine function determines how much of the movement is along the x-axis.
+            x = x + move.distance * math.cos(robot_object.status.pose.theta)
+            # The sine function determines how much of the movement is along the y-axis.
+            y = y + move.distance * math.sin(robot_object.status.pose.theta)
+        # Update orientation if there's a rotation
+        elif move.rotation:
+            theta = theta + move.rotation
+
+        # Create and return a new VDA5050Node with the updated position and orientation
+        return VDA5050Node(
+            nodeId=f"{mission_id}-n{mission_node_id}-s{sequence}",
+            sequenceId=sequence,
+            nodePosition={"x": x, "y": y, "theta": theta})
+
 
 class VDA5050Edge(pydantic.BaseModel):
     """An edge between two nodes sent from the server to the robot"""
@@ -246,7 +310,7 @@ class VDA5050Order(pydantic.BaseModel):
     @pydantic.validator("nodes")
     def _validate_at_least_one_node(cls, value):
         if len(value) < 1:
-            raise ValueError("Number of nodes must be >= 1")
+            raise common.ICSUsageError("Number of nodes must be >= 1")
         return value
 
     @pydantic.validator("edges")
@@ -255,9 +319,10 @@ class VDA5050Order(pydantic.BaseModel):
         node_count = len(values.get("nodes", []))
         target_edge_count = node_count - 1
         if edge_count != target_edge_count:
-            raise ValueError("There must be exactly one less edge than nodes. There are "
-                             f"{node_count} nodes and {edge_count} edges, but there should be "
-                             f"{target_edge_count} edges")
+            raise common.ICSUsageError(
+                "There must be exactly one less edge than nodes. There are "
+                f"{node_count} nodes and {edge_count} edges, but there should be "
+                f"{target_edge_count} edges")
         return edges
 
     @classmethod
@@ -323,6 +388,25 @@ class VDA5050Order(pydantic.BaseModel):
             edges=edges)
 
     @classmethod
+    def from_move(cls, move: mission.MissionMoveNodeV1,
+                  robot_object: robot.RobotObjectV1,
+                  mission_id: str,
+                  mission_node_id: int) -> "VDA5050Order":
+        # Create an initial node from the robots current position
+        nodes = [VDA5050Node.from_robot(
+            robot_object, mission_id, mission_node_id)]
+        edges = []
+        nodes += [VDA5050Node.from_move(robot_object,
+                                        move, mission_id, mission_node_id, 2)]
+        edges += [VDA5050Edge.from_mission_order(
+            mission_id, 1, mission_node_id)]
+        return VDA5050Order(
+            orderId=f"{mission_id}-n{mission_node_id}",
+            orderUpdateId=0,
+            nodes=nodes,
+            edges=edges)
+
+    @classmethod
     def from_action(cls, action: mission.MissionActionNodeV1,
                     robot_object: robot.RobotObjectV1,
                     mission_id: str,
@@ -341,12 +425,14 @@ class VDA5050Order(pydantic.BaseModel):
             nodes=nodes,
             edges=[])
 
+
 class VDA5050BatteryState(pydantic.BaseModel):
     batteryCharge: float
     batteryVoltage: Optional[float]
     batteryHealth: Optional[int]
     charging: bool
     reach: Optional[int]
+
 
 class VDA5050OrderInformation(pydantic.BaseModel):
     """ Feedback on the current mission and robot status from the client """

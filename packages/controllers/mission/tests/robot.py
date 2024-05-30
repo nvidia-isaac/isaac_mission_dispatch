@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,16 +16,19 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
+import datetime
 import time
 import unittest
+import paho.mqtt.client as mqtt_client
+import packages.controllers.mission.vda5050_types as types
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
-from packages.objects import robot as robot_object
+from cloud_common.objects import mission as mission_object
+from cloud_common.objects import robot as robot_object
+from cloud_common.objects.robot import RobotStateV1
 
 from packages.controllers.mission.tests import test_context
-
 # Waypoint for a mission that will be reused for many tests
 DEFAULT_MISSION_X = 10.0
 DEFAULT_MISSION_Y = 10.0
@@ -35,6 +38,13 @@ SCENARIO1_WAYPOINTS = [
     (1, 1),
     (10, 10),
     (5, 5),
+]
+
+MISSION_TREE_1 = [
+    test_context.route_generator(),
+    test_context.action_generator(
+        params={}, name="teleop", action_type="pause_order"),
+    test_context.route_generator()
 ]
 
 
@@ -161,6 +171,121 @@ class TestMissions(unittest.TestCase):
             watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
             for update in watcher:
                 if update.status.battery_level == 42:
+                    break
+
+    def test_charging_transition(self):
+        """ Validate charging state transition """
+        robot = simulator.RobotInit("test01", 0, 0)
+        # Create MQTT Client to simulate messages from robot
+        client = mqtt_client.Client(transport=test_context.MQTT_TRANSPORT)
+        client.ws_set_options(path=test_context.MQTT_WS_PATH)
+        with test_context.TestContext([robot]) as ctx:
+            client.connect(ctx.mqtt_address, test_context.MQTT_PORT)
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+
+            # Initial state is IDLE
+            watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
+            for update in watcher:
+                if update.status.state == RobotStateV1.IDLE:
+                    break
+
+            # Publish charging=True message
+            # State should transition to CHARGING
+            topic = f"{test_context.MQTT_PREFIX}/test01/state"
+            message = types.VDA5050OrderInformation(
+                headerId=0,
+                timestamp=datetime.datetime.now().isoformat(),
+                manufacturer="",
+                serialNumber="",
+                orderId="",
+                orderUpdateId=0,
+                lastNodeId="",
+                lastNodeSequenceId=0,
+                nodeStates=[],
+                edgeStates=[],
+                actionStates=[],
+                agvPosition={"x": 0, "y": 0,
+                            "theta": 0, "mapId": ""},
+                batteryState={"batteryCharge": 50,
+                            "charging": True})
+            client.publish(topic, message.json())
+            time.sleep(0.5)
+            for update in watcher:
+                if update.status.state == RobotStateV1.CHARGING:
+                    break
+
+            # Publish charging=False message
+            # State should transition to IDLE
+            message.batteryState.charging = False
+            client.publish(topic, message.json())
+            time.sleep(0.5)
+            for update in watcher:
+                if update.status.state == RobotStateV1.IDLE:
+                    break
+
+    def test_teleop_in_mission(self):
+        """ Test mission with teleop node"""
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_1))
+
+            # Make sure the robot is in teleop mode
+            watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
+            for update in watcher:
+                if update.status.state == robot_object.RobotStateV1.TELEOP:
+                    break
+            # Simulate teleop
+            time.sleep(5)
+            # Stop teleop
+            ctx.call_teleop_service(robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
+            for update in ctx.db_client.watch(api_objects.MissionObjectV1):
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    break
+
+            # Make sure the robot is at the last position in the list of waypoints
+            robot_status = ctx.db_client.get(
+                api_objects.RobotObjectV1, "test01").status
+            waypoint = MISSION_TREE_1[-1]["route"]["waypoints"][-1]
+            self.assertAlmostEqual(robot_status.pose.x,
+                                   waypoint["x"], places=2)
+            self.assertAlmostEqual(robot_status.pose.y,
+                                   waypoint["y"], places=2)
+
+    def test_teleop_by_user_request(self):
+        """ Test teleop by user request"""
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(test_context.mission_from_waypoints(
+                "test01", SCENARIO1_WAYPOINTS))
+
+            for mission in ctx.db_client.watch(api_objects.MissionObjectV1):
+                if mission.status.state == mission_object.MissionStateV1.RUNNING:
+                    break
+            # Simulate teleop
+            watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
+            # Start teleop
+            ctx.call_teleop_service(robot_name="test01", teleop=robot_object.RobotTeleopActionV1.START)
+            time.sleep(5)
+            for update in watcher:
+                if update.status.state == robot_object.RobotStateV1.TELEOP:
+                    break
+            # Stop teleop
+            ctx.call_teleop_service(robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
+            for update in watcher:
+                if update.status.state == robot_object.RobotStateV1.ON_TASK:
+                    break
+            for update in ctx.db_client.watch(api_objects.MissionObjectV1):
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
                     break
 
 

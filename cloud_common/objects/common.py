@@ -16,11 +16,41 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
-import pydantic
 import enum
+
+import pydantic
+
 # Tell pylint to ignore the invalid names. We must use fields that are specified
 # by VDA5050.
 # pylint: disable=invalid-name
+
+
+class ICSError(Exception):
+    """
+    Base class for exceptions in this module.
+    If unexpected Error occurs user will be shown this error.
+    """
+    error_code: str = "ICS_ERROR"
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}: {self.message}"
+
+    def __str__(self):
+        return self.message
+
+
+class ICSUsageError(ICSError):
+    """ Exception raised for errors to notify users with appropriate message. """
+    error_code: str = "USAGE"
+
+
+class ICSServerError(ICSError):
+    """ Exception raised for errors in the server. """
+    error_code: str = "SERVER"
 
 
 class TaskType(enum.Enum):
@@ -44,3 +74,10 @@ class Pose2D(pydantic.BaseModel):
     allowedDeviationTheta: float = pydantic.Field(
         description="Allowed theta deviation radians",
         default=0.0)
+
+
+def handle_response(response):
+    if response.status_code >= 400 and response.status_code < 500:
+        raise ICSUsageError(response.text)
+    if response.status_code >= 500:
+        raise ICSServerError(response.text)

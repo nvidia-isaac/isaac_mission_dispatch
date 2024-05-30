@@ -20,10 +20,10 @@ import time
 import unittest
 import uuid
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
-from packages.objects import robot as robot_object
+from cloud_common.objects import mission as mission_object
+from cloud_common.objects import robot as robot_object
 
 from packages.controllers.mission.tests import test_context
 

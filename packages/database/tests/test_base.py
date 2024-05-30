@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,12 +19,14 @@ SPDX-License-Identifier: Apache-2.0
 import multiprocessing
 import os
 import signal
-from typing import Any, List, Tuple
+import datetime
+from typing import Any, List, Tuple, Dict, Union
 
 import unittest
 
-import packages.objects as api_objects
-from packages.objects.robot import RobotStateV1
+import cloud_common.objects as api_objects
+from cloud_common.objects.robot import RobotStateV1
+from cloud_common.objects.mission import MissionStateV1, MissionNodeV1
 from packages.utils import test_utils
 
 # A label to add to a robot to demonstrate modifing the spec
@@ -43,7 +45,7 @@ class TestDatabase(unittest.TestCase):
         TestDatabase.has_process_crashed = True
         raise OSError("Child process crashed!")
 
-    def run_docker(cls, image: str, args: List[str], docker_args: List[str] = None,
+    def run_docker(cls, image: str, args: List[str], docker_args: Union[List[str],None] = None,
                    delay: int = 0) -> Tuple[multiprocessing.Process, str]:
         pid = os.getpid()
         queue: multiprocessing.queues.Queue[str] = multiprocessing.Queue()
@@ -155,11 +157,11 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(fetched_robot.lifecycle, api_objects.ObjectLifecycleV1.PENDING_DELETE)
 
         # User should not be able to update status
-        with self.assertRaises(ValueError):
+        with self.assertRaises(api_objects.common.ICSUsageError):
             self.client.update_status(robot0)
 
         # Controller should not be able to update spec
-        with self.assertRaises(ValueError):
+        with self.assertRaises(api_objects.common.ICSUsageError):
             self.controller_client.update_spec(robot0)
 
         self.controller_client.delete(api_objects.RobotObjectV1, robot0.name)
@@ -325,7 +327,7 @@ class TestDatabase(unittest.TestCase):
         robots = self.setup_robots()
 
         # Test names
-        params: dict[str, Any] = {
+        params: Dict[str, Any] = {
             "names": ["carter01", "carter03", "carter04", "carter09"]
         }
         output = self.client.list(api_objects.RobotObjectV1, params)
@@ -347,3 +349,86 @@ class TestDatabase(unittest.TestCase):
 
         self.cleanup_robots(robots)
 
+    def test_mission_queries(self):
+        tree = [MissionNodeV1(selector={})]
+        missions = [
+            api_objects.MissionObjectV1(name="mission0", robot="0", mission_tree=tree, status={}),
+            api_objects.MissionObjectV1(name="mission1", robot="1", mission_tree=tree, status={}),
+            api_objects.MissionObjectV1(name="mission2", robot="2", mission_tree=tree, status={})
+        ]
+        for mission in missions:
+            self.client.create(mission)
+
+        # Mission0 started at 2001/1/1, state = PENDING
+        missions[0].status.start_timestamp = datetime.datetime(2001, 1, 1)
+        missions[0].status.state = MissionStateV1.PENDING
+
+        # Mission1 started at 2002/2/2, state = COMPLETED
+        missions[1].status.start_timestamp = datetime.datetime(2002, 2, 2)
+        missions[1].status.state = MissionStateV1.COMPLETED
+
+        # Mission2 started at 2003/3/3, state = FAILED
+        missions[2].status.start_timestamp = datetime.datetime(2003, 3, 3)
+        missions[2].status.state = MissionStateV1.FAILED
+
+        for mission in missions:
+            self.controller_client.update_status(mission)
+
+        params: Dict[str, Any] = {
+            "started_after": datetime.datetime(2001, 1, 1)
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 3
+
+        params = {
+            "started_after": datetime.datetime(2001, 1, 2)
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 2
+
+        params = {
+            "started_after": datetime.datetime(2002, 12, 30)
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 1
+        assert missions[2] == returned_missions[0]
+
+        params = {
+            "started_after": datetime.datetime(2002, 1, 1),
+            "started_before": datetime.datetime(2003, 1, 1)
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 1
+        assert missions[1] == returned_missions[0]
+
+        params = {
+            "started_after": datetime.datetime(2000, 1, 1),
+            "started_before": datetime.datetime(2002, 1, 1),
+            "state": "PENDING"
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 1
+        assert missions[0] == returned_missions[0]
+
+        params = {
+            "most_recent": 1
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 1
+        assert missions[2] == returned_missions[0], returned_missions[0]
+
+        params = {
+            "most_recent": 2
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 2
+        assert missions[2] == returned_missions[0]
+        assert missions[1] == returned_missions[1]
+
+        params = {
+            "started_before": datetime.datetime(2003, 1, 1),
+            "most_recent": 1
+        }
+        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 1
+        assert missions[1] == returned_missions[0]

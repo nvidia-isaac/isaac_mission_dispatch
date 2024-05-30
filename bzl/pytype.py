@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ def shadowed_module(path: str) -> bool:
     """ Whether a path indicates a module that shadows a dist-package and should be excluded from
     mypy """
     shadowed_modules = [
-        "pypi__typing_extensions"
+        "typing_extensions", "mypy_extensions"
     ]
     return any(module in path for module in shadowed_modules)
 

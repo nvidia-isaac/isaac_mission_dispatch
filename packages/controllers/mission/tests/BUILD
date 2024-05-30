@@ -39,7 +39,8 @@ py_library(
     deps = [
         "//packages/database:client",
         "//packages/utils/test_utils",
-        ":client"
+        ":client",
+        requirement("requests")
     ],
     data = [
         "//packages/controllers/mission:mission-img-bundle",

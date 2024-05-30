@@ -25,7 +25,7 @@ mission_dispatch_py_library(
     ],
     deps=[
         "//packages/utils/test_utils",
-        "//packages/objects",
+        "//:cloud_common_objects",
     ],
     visibility = ["//visibility:public"]
 )

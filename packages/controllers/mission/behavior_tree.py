@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import py_trees
 from typing import Any
-import packages.objects.mission as mission_object
+import cloud_common.objects.mission as mission_object
 
 def tree2mission_state(type: py_trees.common.Status) -> mission_object.MissionStateV1:
     if type == py_trees.common.Status.SUCCESS:
@@ -72,7 +72,7 @@ class ConstantBehaviorNode(py_trees.behaviour.Behaviour):
 
 class MissionLeafNode(py_trees.behaviour.Behaviour):
     """
-    Route/action behavior tree node
+    Route/action/notify behavior tree node
     """
     def __init__(self, mission: mission_object.MissionObjectV1, idx: int,
                  status=py_trees.common.Status.INVALID):
@@ -80,7 +80,7 @@ class MissionLeafNode(py_trees.behaviour.Behaviour):
         self.idx = idx
         self.name = str(self.mission.mission_tree[idx].name)
         self.status = status
-        super(MissionLeafNode, self).__init__(self.name)
+        super(MissionLeafNode, self).__init__(self.name) # pylint: disable=super-with-arguments
 
     @property
     def type(self) -> str:
@@ -181,9 +181,11 @@ class MissionBehaviorTree():
                 parent.add_child(SelectorBehaviorNode(str(mission_node.name), i, status))
             elif mission_node.type == mission_object.MissionNodeType.SEQUENCE:
                 parent.add_child(SequenceBehaviorNode(str(mission_node.name), i, status))
-            # Check if this is a leaf node: route or action
+            # Check if this is a leaf node: route, action, or notify
             elif mission_node.type in (mission_object.MissionNodeType.ROUTE,
-                                       mission_object.MissionNodeType.ACTION):
+                                       mission_object.MissionNodeType.ACTION,
+                                       mission_object.MissionNodeType.NOTIFY,
+                                       mission_object.MissionNodeType.MOVE):
                 leaf_node = MissionLeafNode(self.mission, i, status)
                 parent.add_child(leaf_node)
             elif mission_node.type == mission_object.MissionNodeType.CONSTANT:

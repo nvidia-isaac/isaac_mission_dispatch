@@ -20,16 +20,17 @@ import time
 import unittest
 import pydantic
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
+from cloud_common.objects import mission as mission_object
 from packages.controllers.mission.tests import test_context
+from cloud_common.objects import common
 
 # Mission tree examples
 MISSION_TREE_1 = [
     test_context.route_generator(),
-    test_context.action_generator(0, 1),
-    test_context.action_generator(0, 2),
+    test_context.action_generator(params={"should_fail": 0, "time": 1}),
+    test_context.action_generator(params={"should_fail": 0, "time": 2}),
     test_context.route_generator()
 ]
 # Expected progression of mission state for the mission `MISSION_TREE_1`
@@ -48,7 +49,7 @@ SCENARIO1_EXPECTED_STATUSES = [
 
 MISSION_TREE_2 = [
     test_context.route_generator(),
-    test_context.action_generator(1, 3),
+    test_context.action_generator(params={"should_fail": 1, "time": 3}),
     test_context.route_generator()
 ]
 SCENARIO2_EXPECTED_STATUSES = [
@@ -65,7 +66,7 @@ SCENARIO2_EXPECTED_STATUSES = [
 MISSION_TREE_3 = [
     test_context.route_generator(),
     {"name": "selector_1", "selector": {}, "parent": "root"},
-    test_context.action_generator(1, 3, parent="selector_1"),
+    test_context.action_generator(params={"should_fail": 1, "time": 3}, parent="selector_1"),
     test_context.route_generator(parent="selector_1")
 ]
 SCENARIO3_EXPECTED_STATUSES = [
@@ -83,7 +84,7 @@ SCENARIO3_EXPECTED_STATUSES = [
 MISSION_TREE_4 = [
     test_context.route_generator(),
     {"name": "sequence_1", "sequence": {}, "parent": "root"},
-    test_context.action_generator(1, 3, parent="sequence_1"),
+    test_context.action_generator(params={"should_fail": 1, "time": 3}, parent="sequence_1"),
     test_context.route_generator(parent="sequence_1")
 ]
 SCENARIO4_EXPECTED_STATUSES = [
@@ -100,7 +101,7 @@ SCENARIO4_EXPECTED_STATUSES = [
 MISSION_TREE_5 = [
     test_context.route_generator(),
     {"name": "selector_1", "selector": {}, "parent": "root"},
-    test_context.action_generator(1, 3, parent="selector_1"),
+    test_context.action_generator(params={"should_fail": 1, "time": 3}, parent="selector_1"),
     {"name": "sequence_1", "sequence": {}, "parent": "selector_1"},
     test_context.route_generator(parent="sequence_1"),
     test_context.route_generator(parent="sequence_1"),
@@ -125,16 +126,16 @@ SCENARIO5_EXPECTED_STATUSES = [
 
 MISSION_TREE_6 = [
     test_context.route_generator(),
-    test_context.action_generator(0, 1, parent="root", name="pickup"),
+    test_context.action_generator(params={"should_fail": 0, "time": 1}, parent="root", name="pickup"),
     {"name": "selector_1", "selector": {}, "parent": "root"},
     test_context.action_generator(
-        1, 1, parent="selector_1", name="fake_failure_route"),
+        params={"should_fail": 1, "time": 1}, parent="selector_1", name="fake_failure_route"),
     {"name": "sequence_1", "sequence": {}, "parent": "selector_1"},
     test_context.route_generator(parent="sequence_1"),
-    test_context.action_generator(0, 1, parent="sequence_1", name="dropoff"),
+    test_context.action_generator(params={"should_fail": 0, "time": 1}, parent="sequence_1", name="dropoff"),
     {"name": "constant_node", "constant": {
         "success": "false"}, "parent": "sequence_1"},
-    test_context.action_generator(0, 1, parent="root", name="dropoff_at_goal"),
+    test_context.action_generator(params={"should_fail": 0, "time": 1}, parent="root", name="dropoff_at_goal"),
 ]
 SCENARIO6_EXPECTED_STATUSES = [
     mission_object.MissionStatusV1(state="PENDING", current_node=0),
@@ -154,6 +155,69 @@ SCENARIO6_EXPECTED_STATUSES = [
                                                 'dropoff': {'state': 'COMPLETED'},
                                                 'constant_node': {'state': 'FAILED'},
                                                 'dropoff_at_goal': {'state': 'PENDING'}}), ]
+
+MISSION_TREE_7 = [
+    test_context.route_generator(),
+    test_context.notify_generator(url="",
+                                  json_data={
+                                      "labels": [],
+                                      "battery": {
+                                          "critical_level": 0.1
+                                      },
+                                      "heartbeat_timeout": 30,
+                                      "name": "bob"
+                                  })]
+
+
+SCENARIO7_EXPECTED_STATUSES = [
+    mission_object.MissionStatusV1(state="PENDING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=1),
+    mission_object.MissionStatusV1(state="COMPLETED", current_node=1,
+                                   node_status={'root': {'state': 'COMPLETED'},
+                                                '0': {'state': 'COMPLETED'},
+                                                '1': {'state': 'COMPLETED'}})]
+
+MISSION_TREE_8 = [
+    test_context.notify_generator(url="",
+                                  json_data={
+                                      "labels": [],
+                                      "battery": {
+                                          "critical_level": 0.1
+                                      },
+                                      "heartbeat_timeout": 30,
+                                      "name": "bob"
+                                  })]
+
+SCENARIO8_EXPECTED_STATUSES = [
+    mission_object.MissionStatusV1(state="PENDING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0),
+    mission_object.MissionStatusV1(state="COMPLETED", current_node=0,
+                                   node_status={'root': {'state': 'COMPLETED'},
+                                                '0': {'state': 'COMPLETED'}})]
+
+# Fail because of duplicate name
+MISSION_TREE_9 = [
+    test_context.route_generator(),
+    test_context.notify_generator(url="",
+                                  json_data={
+                                      "labels": [],
+                                      "battery": {
+                                          "critical_level": 0.1
+                                      },
+                                      "heartbeat_timeout": 30,
+                                      "name": "test01"
+                                  })]
+
+
+SCENARIO9_EXPECTED_STATUSES = [
+    mission_object.MissionStatusV1(state="PENDING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=1),
+    mission_object.MissionStatusV1(state="FAILED", current_node=1,
+                                   node_status={'root': {'state': 'FAILED'},
+                                                '0': {'state': 'COMPLETED'},
+                                                '1': {'state': 'FAILED'}})]
 
 
 class TestMissionTree(unittest.TestCase):
@@ -286,7 +350,7 @@ class TestMissionTree(unittest.TestCase):
         robot = simulator.RobotInit("test01", 0, 0, 0)
         mission_tree = [
             test_context.route_generator(name="route-node"),
-            test_context.action_generator(0, 1, name="action-node")
+            test_context.action_generator(params={"should_fail": 0, "time": 1}, name="action-node")
         ]
         # Expected progression of mission state for the mission `MISSION_TREE_1`
         mission_status = [
@@ -323,7 +387,7 @@ class TestMissionTree(unittest.TestCase):
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            with self.assertRaises(pydantic.error_wrappers.ValidationError) as cm:
+            with self.assertRaises(common.ICSUsageError) as cm:
                 ctx.db_client.create(
                     test_context.mission_object_generator("test01", mission_tree))
             self.assertTrue("route-node" in str(cm.exception))
@@ -338,7 +402,7 @@ class TestMissionTree(unittest.TestCase):
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            with self.assertRaises(pydantic.error_wrappers.ValidationError) as cm:
+            with self.assertRaises(common.ICSUsageError) as cm:
                 ctx.db_client.create(
                     test_context.mission_object_generator("test01", mission_tree))
             self.assertTrue("root-1" in str(cm.exception))
@@ -382,6 +446,75 @@ class TestMissionTree(unittest.TestCase):
                 test_context.mission_object_generator("test01", MISSION_TREE_6))
             # Make sure the mission is updated and completed
             for expected_state, update in zip(SCENARIO6_EXPECTED_STATUSES,
+                                              ctx.db_client.watch(api_objects.MissionObjectV1)):
+                self.assertEqual(update.status.state, expected_state.state)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
+                    break
+
+    def test_route_with_notify_node(self):
+        """ Test simple tree with notify node """
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Use Mission Dispatch POST /robot to test
+            MISSION_TREE_7[1]['notify']['url'] = f"http://{ctx.database_address}:5003/robot"
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_7))
+            # Make sure the mission is updated and completed
+            for expected_state, update in zip(SCENARIO7_EXPECTED_STATUSES,
+                                              ctx.db_client.watch(api_objects.MissionObjectV1)):
+                self.assertEqual(update.status.state, expected_state.state)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
+                    break
+
+    def test_single_notify_node(self):
+        """ Test tree with single notify node """
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Use Mission Dispatch POST /robot to test
+            MISSION_TREE_8[0]['notify']['url'] = f"http://{ctx.database_address}:5003/robot"
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_8))
+            # Make sure the mission is updated and completed
+            for expected_state, update in zip(SCENARIO8_EXPECTED_STATUSES,
+                                              ctx.db_client.watch(api_objects.MissionObjectV1)):
+                self.assertEqual(update.status.state, expected_state.state)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    self.assertEqual(update.status.node_status,
+                                     expected_state.node_status)
+                    break
+
+    def test_failed_notify_node(self):
+        """ Test simple tree with failed notify node """
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Use Mission Dispatch POST /robot to test
+            MISSION_TREE_9[1]['notify']['url'] = f"http://{ctx.database_address}:5003/robot"
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_9))
+            # Make sure the mission is updated and completed
+            for expected_state, update in zip(SCENARIO9_EXPECTED_STATUSES,
                                               ctx.db_client.watch(api_objects.MissionObjectV1)):
                 self.assertEqual(update.status.state, expected_state.state)
                 self.assertEqual(update.status.current_node,

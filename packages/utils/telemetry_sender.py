@@ -16,26 +16,25 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
-load("//bzl:python.bzl", "mission_dispatch_py_binary")
-load("@python_third_party//:requirements.bzl", "requirement")
 
-telemetry_deps = [
-    "//packages/utils:telemetry_sender"
-    ]
+from typing import Dict
+import logging
 
-mission_dispatch_py_binary(
-    name = "mission",
-    main = "main.py",
-    srcs = glob(["*.py"]),
-    deps = [
-      "//:cloud_common_objects",
-      "//packages/database:client",
-      "//packages/controllers/mission/vda5050_types",
-      "//packages/utils:metrics",
-      requirement("pydantic"),
-      requirement("paho-mqtt"),
-      requirement("pyyaml"),
-      requirement("py_trees"),
-    ] + telemetry_deps,
-    visibility = ["//visibility:public"]
-)
+class TelemetrySender:
+    """ Telemetry Ingestion
+    """
+
+    def __init__(self, telemetry_env: str = "DEV") -> None:
+        self.logger = logging.getLogger("Isaac Mission Dispatch")
+        self.logger.debug("telemetry env: %s", telemetry_env)
+
+    def send_telemetry(self, metrics: Dict,
+                       service_name: str = "DISPATCH"):
+        """
+        Send telemetry data
+
+        Args:
+            metrics: metric dictionary to send
+            index: the index to send the info to
+        """
+        self.logger.debug("Send telemetry data.")

@@ -23,7 +23,7 @@ mission_dispatch_py_library(
     name="vda5050_types",
     srcs = glob(["*.py"]),
     deps = [
-        "//packages/objects",
+        "//:cloud_common_objects",
         requirement("pydantic")
     ],
     visibility = ["//visibility:public"]
