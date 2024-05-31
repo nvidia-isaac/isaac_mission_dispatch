@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,9 +19,10 @@ SPDX-License-Identifier: Apache-2.0
 import time
 import unittest
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
-from packages.objects import mission as mission_object
+from cloud_common.objects import mission as mission_object
+from cloud_common.objects import common
 
 from packages.controllers.mission.tests import test_context
 
@@ -32,7 +33,7 @@ WAYPOINT_3 = (3, 3)
 MISSION_TREE = [
     test_context.route_generator(),
     {"name": "selector_1", "selector": {}, "parent": "root"},
-    test_context.action_generator(1, 3, parent="selector_1"),
+    test_context.action_generator(params={"should_fail": 1, "time": 3}, parent="selector_1"),
     {"name": "sequence_1", "sequence": {}, "parent": "selector_1"},
     test_context.route_generator(parent="sequence_1"),
     test_context.route_generator(parent="sequence_1"),
@@ -153,7 +154,7 @@ class TestUpdateMissions(unittest.TestCase):
             # Update a completed mission
             update_nodes = {"0": {"waypoints": [
                 {"x": WAYPOINT_1[0], "y": WAYPOINT_1[1], "theta": 0}]}}
-            with self.assertRaises(ValueError):
+            with self.assertRaises(common.ICSUsageError):
                 ctx.db_client.update_mission(mission_1.name, update_nodes)
 
 

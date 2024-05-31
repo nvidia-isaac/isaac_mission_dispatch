@@ -25,7 +25,7 @@ mission_dispatch_py_library(
         "common.py"
     ],
     deps = [
-        "//packages/objects",
+        "//:cloud_common_objects",
         requirement("fastapi"),
         requirement("pydantic"),
         requirement("uvicorn")
@@ -40,7 +40,7 @@ mission_dispatch_py_binary(
     ],
     deps = [
         ":common",
-        "//packages/objects",
+        "//:cloud_common_objects",
         requirement("fastapi"),
         requirement("psycopg"),
     ],
@@ -51,7 +51,7 @@ mission_dispatch_py_library(
     name = "client",
     srcs = ["client.py"],
     deps = [
-        "//packages/objects",
+        "//:cloud_common_objects",
         requirement("pydantic"),
         requirement("requests"),
     ],

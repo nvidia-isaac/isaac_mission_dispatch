@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,12 +34,24 @@ from collections import OrderedDict
 import paho.mqtt.client as mqtt_client
 import pydantic
 
-import packages.controllers.mission.behavior_tree as behavior_tree
+from packages.controllers.mission import behavior_tree
 import packages.controllers.mission.vda5050_types as types
 import packages.database.client as db_client
-import packages.objects as api_objects
-import packages.objects.mission as mission_object
-import packages.objects.robot as robot_object
+from packages.utils import metrics
+import cloud_common.objects as api_objects
+import cloud_common.objects.mission as mission_object
+import cloud_common.objects.robot as robot_object
+
+import importlib
+
+module_name = "internal_packages.push_data.telemetry_sender"
+try:
+    importlib.util.find_spec(module_name)
+except ModuleNotFoundError:
+    module_name = "packages.utils.telemetry_sender"
+
+module = importlib.import_module(module_name)
+TelemetrySender = getattr(module, "TelemetrySender")
 
 # How long to wait in seconds before trying to reconnect to the mqtt broker
 MQTT_RECONNECT_PERIOD = 0.5
@@ -80,6 +92,12 @@ class Robot:
         self._current_behavior_tree: Optional[behavior_tree.MissionBehaviorTree] = None
         self._updating_mission_from_api: bool = False
         self._charging_mission_received: bool = False
+        if self._robot_server.push_telemetry:
+            self._telemetry = metrics.Telemetry()
+            self._telemetry_client = TelemetrySender(
+                self._robot_server.telemetry_env)
+        # To calculate the durition of a robot state
+        self._cur_robot_state_timestamp = datetime.datetime.now()
         asyncio.get_event_loop().create_task(self.run())
 
     async def _try_start_mission(self):
@@ -113,8 +131,6 @@ class Robot:
         await self._send_order()
 
     async def _send_instant_action(self, instant_action: types.VDA5050Action):
-        self.mission_info(
-            f"Send cancel order action {instant_action.actionId}")
         instant_actions = types.VDA5050InstantActions(
             headerId=self._header_id,
             timestamp=datetime.datetime.now().isoformat(),
@@ -138,11 +154,25 @@ class Robot:
                       behavior_tree.MissionLeafNode):
             idx = self._current_behavior_tree.current_node.idx
             mission_node = self._current_mission.mission_tree[idx]
+
+            # Notify node does not send an order to robot, everything is handled in Dispatch
+            if mission_node.type == mission_object.MissionNodeType.NOTIFY and \
+                    mission_node.notify is not None:
+                self._process_notify_node(mission_node)
+                return
+
             if mission_node.type == mission_object.MissionNodeType.ROUTE and \
                     mission_node.route is not None:
                 order = types.VDA5050Order.from_route(mission_node.route, self._robot_object,
                                                       self._current_mission.name, idx)
                 self.mission_info("Sending mission route node "
+                                  f"{mission_node.name}")
+
+            elif mission_node.type == mission_object.MissionNodeType.MOVE and \
+                    mission_node.move is not None:
+                order = types.VDA5050Order.from_move(mission_node.move, self._robot_object,
+                                                     self._current_mission.name, idx)
+                self.mission_info("Sending mission move node "
                                   f"{mission_node.name}")
 
             elif mission_node.type == mission_object.MissionNodeType.ACTION and \
@@ -166,14 +196,14 @@ class Robot:
         cancel_current_node = False
         # From POST /mission/{name}/cancel endpoint
         if mission.needs_canceled != message.needs_canceled:
-            self.info(f"Cancel a running mission [{message.name}]")
+            self.info(f"Cancel a {mission.status.state} mission [{message.name}]")
             mission.needs_canceled = message.needs_canceled
             return cancel_current_node
 
         # From DELETE /mission/{name} endpoint
         if mission.lifecycle != message.lifecycle:
             self.info(
-                f"Running mission lifecycle is changed to {message.lifecycle}")
+                f"{mission.status.state} mission lifecycle is changed to {message.lifecycle}")
             mission.lifecycle = message.lifecycle
             return cancel_current_node
 
@@ -201,7 +231,7 @@ class Robot:
                 await self._try_start_mission()
         else:  # If we've seen this mission, update it
             if self._current_mission is not None and self._current_mission.name == message.name:
-                self.info(f"Update a running mission [{message.name}]")
+                self.info(f"Update a RUNNING mission [{message.name}]")
                 cancel_node_from_api = self._update_mission_from_api(
                     self._current_mission, message)
                 # Delete/Cancel a running mission
@@ -210,16 +240,17 @@ class Robot:
                     self._current_mission.needs_canceled = True
 
                 if self._current_mission.needs_canceled or cancel_node_from_api:
-                    self.info(f"Cancelling current node...")
+                    self.info("Cancelling current node...")
                     action_id = f"{self._current_mission.name}-instantaction-n{self._header_id}"
                     instant_action = types.VDA5050Action(
                         actionType=types.VDA5050InstantActionType.CANCEL_ORDER,
                         actionId=action_id)
+                    self.mission_info(f"Send cancel order action {action_id}")
                     await self._send_instant_action(instant_action)
                     self._current_instant_actions[action_id] = instant_action
                 return
 
-            self.info(f"Update a queued mission [{message.name}]")
+            self.info(f"Update a PENDING mission [{message.name}]")
             self._update_mission_from_api(
                 self._missions[message.name], message)
             # Delete a queued mission
@@ -232,21 +263,42 @@ class Robot:
                 del self._missions[message.name]
 
     async def _on_robot_change(self, message: api_objects.RobotObjectV1):
-        new_robot = self._robot_object is None
-        self._robot_object = message
-        if new_robot:
+        if self._robot_object is None:
+            # Create robot object
             self.info("Created robot")
+            self._robot_object = message
             self._header_id = 0
             self._robot_online_task = \
                 asyncio.get_event_loop().create_task(self._check_robot_online())
             await self._try_start_mission()
-        if self._robot_object.lifecycle == api_objects.object.ObjectLifecycleV1.PENDING_DELETE:
-            if self._robot_object.status.state == api_objects.robot.RobotStateV1.IDLE:
-                # Set the state of the robot to DELETE for RobotServer to delete on the server and
-                # database side.
+        else:
+            # Delete robot update
+            if message.lifecycle == api_objects.object.ObjectLifecycleV1.PENDING_DELETE:
+                if message.status.state == api_objects.robot.RobotStateV1.ON_TASK:
+                    # Set mission to failure
+                    self._set_mission_state(mission_object.MissionStateV1.FAILED)
+                # Set the state of the robot to DELETE for RobotServer to delete
+                # on the server and database side.
                 self.debug(
                     "Robot is idle and delete request received, deleting robot.")
                 await self._delete_robot_object()
+
+            # Teleop update
+            if (message.switch_teleop and
+                    self._robot_object.status.state != robot_object.RobotStateV1.TELEOP) or \
+                    (not message.switch_teleop and
+                     self._robot_object.status.state == robot_object.RobotStateV1.TELEOP):
+                action_id = f"instantaction-n{self._header_id}"
+                action_type = types.NVInstantActionType.START_TELEOP \
+                    if message.switch_teleop else types.NVInstantActionType.STOP_TELEOP
+                instant_action = types.VDA5050Action(
+                    actionType=action_type, actionId=action_id)
+                self.mission_info(f"Sending {action_type.value} action.")
+                await self._send_instant_action(instant_action)
+                self._current_instant_actions[action_id] = instant_action
+
+            # Robot object update
+            self._robot_object = message
 
     async def _check_robot_online(self):
         if self._robot_object is None:
@@ -268,13 +320,16 @@ class Robot:
         finished_instant_actions = []
         for action_state in message.actionStates[::-1]:
             # Iterate through all the appended instant actions
-            if action_state.actionType not in types.VDA5050InstantActionType.values():
+            if action_state.actionType not in (types.VDA5050InstantActionType.values() +
+                                               types.NVInstantActionType.values()):
                 break
             if action_state.actionId in self._current_instant_actions.keys():
                 if action_state.actionStatus == types.VDA5050ActionStatus.FINISHED:
                     # Update current instant aciton dict
                     finished_instant_actions.append(
                         self._current_instant_actions.pop(action_state.actionId))
+                    self.mission_info(
+                        f"Finished instant action:\n {finished_instant_actions[-1]}")
                 updated_instant_action_ids.append(action_state.actionId)
 
         # Resend instant actions if they are not in the feedback message
@@ -282,6 +337,8 @@ class Robot:
             if action_id not in updated_instant_action_ids:
                 # Resend instant action
                 await self._send_instant_action(instant_action)
+                self.mission_info(
+                    f"Resend {instant_action.actionType} instant action.")
         return finished_instant_actions
 
     async def _on_client_message(self, message: types.VDA5050OrderInformation):
@@ -300,27 +357,37 @@ class Robot:
             self._robot_object.status.pose.map_id = message.agvPosition.mapId
             if message.batteryState:
                 self._robot_object.status.battery_level = message.batteryState.batteryCharge
+                if message.batteryState.charging and not self._robot_object.status.state.running:
+                    self._set_robot_state(
+                        robot_object.RobotStateV1.CHARGING)
+                    self._charging_mission_received = False
+                elif (self._robot_object.status.state == robot_object.RobotStateV1.CHARGING and
+                      not message.batteryState.charging):
+                    self._set_robot_state(
+                        robot_object.RobotStateV1.IDLE)
 
-            if self._robot_server.mission_ctrl_url and not self._robot_object.status.state.running:
-                request_map = not self._robot_object.status.pose.map_id
+            if self._robot_server.mission_ctrl_url:
+                request_map = (not self._robot_object.status.pose.map_id
+                               and self._robot_object.status.state.can_deploy_map)
                 send_charging_mission = (self._robot_object.battery.recommended_minimum
                                          and (self._robot_object.status.battery_level <=
                                               self._robot_object.battery.recommended_minimum)
+                                         and not self._robot_object.status.state.running
                                          and not self._charging_mission_received)
                 if request_map or send_charging_mission:
                     # Check mission control health
-                    health_response = requests.get(
-                        self._robot_server.mission_ctrl_url + "/api/v1/health")
-                    if health_response.status_code == 200:
-                        # Send map request
-                        if request_map:
-                            try:
+                    try:
+                        health_response = requests.get(
+                            self._robot_server.mission_ctrl_url + "/api/v1/health")
+                        if health_response.status_code == 200:
+                            # Send map request
+                            if request_map:
                                 response = requests.post(
                                     self._robot_server.mission_ctrl_url + "/api/v1/push_map",
                                     params={"robot_name": self._name})
                                 if response.status_code == 200:
-                                    self._robot_object.status.state = \
-                                        robot_object.RobotStateV1.MAP_DEPLOYMENT
+                                    self._set_robot_state(
+                                        robot_object.RobotStateV1.MAP_DEPLOYMENT)
                                     logging.debug(
                                         "Map loading request posted successfully for robot %s",
                                         self._name)
@@ -328,28 +395,28 @@ class Robot:
                                     logging.warning(
                                         "Failed to post map loading request for robot %s ",
                                         self._name)
-                            except requests.exceptions.ConnectionError as err:
-                                # Service doesn't exist, handle accordingly
-                                logging.warning(
-                                    "Map loading service failed with error: \n %s", err)
-                        if send_charging_mission:
-                            try:
+                            if send_charging_mission:
                                 response = requests.post(
                                     self._robot_server.mission_ctrl_url+"/api/v1/mission/charging",
                                     params={"robot_name": self._name})
-                                self._charging_mission_received = True
                                 if response.status_code == 200:
                                     logging.debug(
                                         "Charging mission posted successfully for robot %s",
                                         self._name)
+                                    self._charging_mission_received = True
                                 else:
                                     logging.warning(
                                         "Failed to post charging mission for robot %s ",
                                         self._name)
-                            except requests.exceptions.ConnectionError as err:
-                                # Service doesn't exist, handle accordingly
-                                logging.warning(
-                                    "Charging mission service failed with error: \n %s", err)
+                    except requests.exceptions.ConnectionError as err:
+                        # Service doesn't exist, handle accordingly
+                        logging.warning(
+                            "Connection error occurred: \n %s", err)
+                    except requests.exceptions.HTTPError as http_err:
+                        logging.warning("HTTP error occurred: \n %s", http_err)
+                    except requests.exceptions.Timeout as timeout_err:
+                        logging.warning(
+                            "Timeout error occurred: \n %s", timeout_err)
             if not self._robot_object.status.online:
                 self.info("Robot Online")
             self._robot_object.status.online = True
@@ -367,6 +434,7 @@ class Robot:
                 self._database.update_status(self._robot_object)
 
         finished_instant_actions = await self.handle_instant_action(message)
+        self.update_robot_state(finished_instant_actions)
 
         # Make sure there is a mission to update
         if self._current_mission is None or self._current_behavior_tree is None:
@@ -439,6 +507,7 @@ class Robot:
                 return
             self._current_mission.status.failure_reason = "Mission timed out"
             self._set_mission_state(mission_object.MissionStateV1.FAILED)
+            self._set_robot_state(robot_object.RobotStateV1.IDLE)
 
     async def _delete_robot_object(self):
         if self._robot_object is not None:
@@ -468,12 +537,21 @@ class Robot:
                 current_mission_node.route is not None:
             if current_order_node_id == current_mission_node.route.size * 2 + 2:
                 node_state = mission_object.MissionStateV1.COMPLETED
+        elif current_mission_node.type == mission_object.MissionNodeType.MOVE and \
+                current_mission_node.move is not None and current_order_node_id == 1 * 2 + 2:
+            node_state = mission_object.MissionStateV1.COMPLETED
         # TODO(Nico): fix the action states index
         elif current_mission_node.type == mission_object.MissionNodeType.ACTION:
             if message.actionStates[0].actionStatus == types.VDA5050ActionStatus.FINISHED:
                 node_state = mission_object.MissionStateV1.COMPLETED
             elif message.actionStates[0].actionStatus == types.VDA5050ActionStatus.FAILED:
                 node_state = mission_object.MissionStateV1.FAILED
+            # Check if this is a teleop action node
+            elif message.actionStates[0].actionType == types.NVActionType.PAUSE_ORDER and \
+                self._robot_object is not None and \
+                    self._robot_object.status.state != robot_object.RobotStateV1.TELEOP:
+                self._set_robot_state(robot_object.RobotStateV1.TELEOP)
+                self.mission_info("Switch to teleop")
         # Check if there is an instant order cancellation feedback
         for finished_instant_action in finished_instant_actions:
             if finished_instant_action.actionType == types.VDA5050InstantActionType.CANCEL_ORDER:
@@ -533,6 +611,24 @@ class Robot:
                 f"update mission node: {self._current_mission.status.current_node}")
             self._database.update_status(self._current_mission)
 
+    def update_robot_state(self, finished_instant_actions: List[types.VDA5050Action]):
+        """ Update robot states after teleop is finished
+
+        Args:
+            finished_instant_actions (List[types.VDA5050Action]): All the completed instant actions
+        """
+        # Check if there is an instant teleop feedback
+        for finished_instant_action in finished_instant_actions:
+            if finished_instant_action.actionType == types.NVInstantActionType.START_TELEOP:
+                self._set_robot_state(robot_object.RobotStateV1.TELEOP)
+                self.mission_info("Switch to teleop")
+            else:
+                resume_robot_state = robot_object.RobotStateV1.ON_TASK \
+                    if self._current_mission else robot_object.RobotStateV1.IDLE
+                self._set_robot_state(resume_robot_state)
+                self.mission_info("Stop teleop")
+            return
+
     def update_mission_state(self, message: types.VDA5050OrderInformation,
                              finished_instant_actions: List):
         # Update mission state from both robot feedback and behavior tree
@@ -590,6 +686,17 @@ class Robot:
         if self._robot_object is None or state == self._robot_object.status.state:
             return
         self.info(f"Robot state: {self._robot_object.status.state} -> {state}")
+        if self._robot_server.push_telemetry:
+            prev_state_timestamp = self._cur_robot_state_timestamp
+            self._cur_robot_state_timestamp = datetime.datetime.now()
+            duration = (self._cur_robot_state_timestamp -
+                        prev_state_timestamp).total_seconds()
+            robot_metrics = {
+                f"{self._robot_object.status.state.value}.duration": duration}
+            self._telemetry.add_kpi(
+                self._robot_object.name, robot_metrics, metrics.Timeframe.ROBOT)
+            self._telemetry_client.send_telemetry(self._telemetry.get_kpis_by_frequency(
+                metrics.Timeframe.ROBOT))
         self._robot_object.status.state = state
         self._database.update_status(self._robot_object)
 
@@ -623,6 +730,21 @@ class Robot:
                     f"Mission failed at {self._current_mission.status.end_timestamp}")
                 self.mission_info(
                     f"Failure reason: {self._current_mission.status.failure_reason}")
+
+            if self._robot_server.push_telemetry:
+                telem = {}  # type: Dict[str, Union[int, str]]
+                telem[f"{state}"] = 1
+                telem["mission_id"] = self._current_mission.name
+
+                self._telemetry.add_kpi(
+                    "mission_fate",
+                    telem,
+                    metrics.Timeframe.MISSION)
+                self._telemetry_client.send_telemetry(
+                    self._telemetry.get_kpis_by_frequency(
+                        metrics.Timeframe.MISSION))
+                self._telemetry.clear_frequency(metrics.Timeframe.MISSION)
+
         if self._current_mission.status.start_timestamp is not None and \
                 self._current_mission.status.end_timestamp is not None:
             self.mission_info("Mission duration: "
@@ -640,6 +762,34 @@ class Robot:
         self.mission_info(f"Node {node_name}: {previous_state} -> {state}")
         self._current_mission.status.node_status[node_name].state = state
 
+    def _process_notify_node(self, mission_node):
+        self.set_mission_node_state(f"{mission_node.name}",
+                                    mission_object.MissionStateV1.RUNNING)
+        retries = 0
+        while retries <= 3:
+            response = requests.post(url=mission_node.notify.url,
+                                     json=mission_node.notify.json_data,
+                                     timeout=mission_node.notify.timeout)
+            if response.status_code == 200:
+                self.set_mission_node_state(f"{mission_node.name}",
+                                            mission_object.MissionStateV1.COMPLETED)
+                break
+            elif response.status_code in [408, 425, 429, 500, 502, 503, 504]:
+                self.mission_info(
+                    f"Notify: {response.status_code} received, retrying")
+                retries += 1
+            else:
+                self.set_mission_node_state(f"{mission_node.name}",
+                                            mission_object.MissionStateV1.FAILED)
+                break
+        if retries > 3:
+            self.set_mission_node_state(f"{mission_node.name}",
+                                        mission_object.MissionStateV1.FAILED)
+
+        # Since Notify does not send an order, there is no feedback from robot, so we
+        # need to trigger update here
+        self.update_mission_from_behavior_tree()
+
     @property
     def robot_object(self) -> Optional[robot_object.RobotObjectV1]:
         return self._robot_object
@@ -650,8 +800,10 @@ class RobotServer:
 
     def __init__(self, mqtt_host: str = "localhost", mqtt_port: int = 1883,
                  mqtt_transport: str = "tcp", mqtt_ws_path: Optional[str] = None,
-                 mqtt_prefix: str = "uagv/v1", database_url: str = "http://localhost:5000",
-                 mission_ctrl_url: Optional[str] = None):
+                 mqtt_prefix: str = "uagv/v2/RobotCompany",
+                 database_url: str = "http://localhost:5000",
+                 mission_ctrl_url: Optional[str] = None, push_telemetry: bool = False,
+                 telemetry_env: str = "DEV"):
         """Initializes a RobotServer object by starting threads for mqtt and for the robot/mission
         database watchers
         Args:
@@ -697,6 +849,8 @@ class RobotServer:
 
         # Mission control
         self.mission_ctrl_url = mission_ctrl_url
+        self.push_telemetry = push_telemetry
+        self.telemetry_env = telemetry_env
 
     def _enqueue(self, queue, obj):
         asyncio.run_coroutine_threadsafe(queue.put(obj), self._event_loop)
@@ -819,7 +973,7 @@ class RobotServer:
 
     async def delete_pending_mission(self, mission: api_objects.MissionObjectV1) -> bool:
         if mission.lifecycle == \
-            api_objects.object.ObjectLifecycleV1.PENDING_DELETE:
+                api_objects.object.ObjectLifecycleV1.PENDING_DELETE:
             self._database.delete(
                 api_objects.MissionObjectV1, mission.name)
             self.info(f"Deleted mission {mission.name}")

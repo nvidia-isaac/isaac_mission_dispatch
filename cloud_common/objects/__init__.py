@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@ SPDX-License-Identifier: Apache-2.0
 """
 from typing import Dict, List, Type
 
-from packages.objects.mission import MissionObjectV1
-from packages.objects.object import ApiObject, ApiObjectMethod, ObjectLifecycleV1
-from packages.objects.robot import RobotObjectV1
+from cloud_common.objects.mission import MissionObjectV1
+from cloud_common.objects.object import ApiObject, ApiObjectMethod, ObjectLifecycleV1
+from cloud_common.objects.robot import RobotObjectV1
 
 ALL_OBJECTS: List[Type[ApiObject]] = [RobotObjectV1, MissionObjectV1]
 OBJECT_DICT: Dict[str, Type[ApiObject]] = {obj.get_alias(): obj for obj in ALL_OBJECTS}

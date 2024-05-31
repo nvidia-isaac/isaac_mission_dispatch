@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,8 +22,9 @@ from typing import Any, List, Optional, Dict
 import uuid
 import requests
 
-from packages import objects
-from packages.objects.mission import MissionObjectV1, MissionRouteNodeV1
+from cloud_common import objects
+from cloud_common.objects.mission import MissionObjectV1, MissionRouteNodeV1
+from cloud_common.objects import common
 
 
 class DatabaseClient:
@@ -37,35 +38,30 @@ class DatabaseClient:
         fields = json.loads(obj.spec.json())
         fields["name"] = obj.name
         response = requests.post(url, json=fields, params={"publisher_id": self._publisher_id})
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
 
     def update_spec(self, obj: objects.ApiObject):
         url = f"{self._url}/{obj.get_alias()}/{obj.name}"
         response = requests.put(url, json=json.loads(obj.spec.json()),
                                 params={"publisher_id": self._publisher_id})
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
 
     def update_status(self, obj: objects.ApiObject):
         url = f"{self._url}/{obj.get_alias()}/{obj.name}"
         response = requests.put(url, json={"status": json.loads(obj.status.json())},
                                 params={"publisher_id": self._publisher_id})
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
 
     def list(self, object_type: Any, params: Optional[Dict] = None) -> List[objects.ApiObject]:
         url = f"{self._url}/{object_type.get_alias()}"
         response = requests.get(url, params=params)
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
         return [object_type(**obj) for obj in json.loads(response.text)]
 
     def get(self, object_type: Any, name: str) -> objects.ApiObject:
         url = f"{self._url}/{object_type.get_alias()}/{name}"
         response = requests.get(url)
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
         return object_type(**json.loads(response.text))
 
     def watch(self, object_type: Any):
@@ -77,18 +73,27 @@ class DatabaseClient:
     def delete(self, object_type: Any, name: str):
         url = f"{self._url}/{object_type.get_alias()}/{name}"
         response = requests.delete(url)
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
 
     def cancel_mission(self, name: str):
         url = f"{self._url}/{MissionObjectV1.get_alias()}/{name}/cancel"
         response = requests.post(url)
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
 
     def update_mission(self, name: str, update_nodes: Dict[str, MissionRouteNodeV1]):
         url = f"{self._url}/{MissionObjectV1.get_alias()}/{name}/update"
         response = requests.post(url, json=update_nodes,
                                  params={"publisher_id": self._publisher_id})
-        if response.status_code != 200:
-            raise ValueError(response.text)
+        common.handle_response(response)
+
+    def is_running(self, timeout: int = 5) -> bool:
+        url = f"{self._url}/health"
+        try:
+            response = requests.get(url, timeout=timeout)
+            if response.status_code == 200:
+                return True
+        except requests.ConnectionError:
+            return False
+        except requests.Timeout:
+            return False
+        return False

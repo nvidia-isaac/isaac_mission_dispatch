@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,10 +23,13 @@ import time
 import signal
 from typing import Dict, List, NamedTuple, Tuple, Optional
 
-from packages import objects as api_objects
+from cloud_common import objects as api_objects
+from cloud_common.objects import robot as robot_object
 from packages.controllers.mission.tests import client as simulator
 from packages.database import client as db_client
 from packages.utils import test_utils
+import requests
+import logging
 
 # The TCP port for the api server to listen on
 DATABASE_PORT = 5003
@@ -47,7 +50,7 @@ SIM_SPEED = 10
 # Starting PostgreSQL Db on this port
 POSTGRES_DATABASE_PORT = 5432
 # The MQTT topic prefix
-MQTT_PREFIX = "uagv/v1"
+MQTT_PREFIX = "uagv/v2/RobotCompany"
 
 
 class Delay(NamedTuple):
@@ -62,7 +65,9 @@ class TestContext:
 
     def __init__(self, robots, name="test context", delay: Delay = Delay(),
                  tick_period: float = 0.25, enforce_start_order: bool = True, fail_as_warning=False):
-
+        logging.basicConfig(level=logging.INFO,
+                            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        self.logger = logging.getLogger("Isaac Mission Dispatch Test Context")
         if TestContext.crashed_process:
             raise ValueError("Can't run test due to previous failure")
 
@@ -75,7 +80,7 @@ class TestContext:
         fail_as_warning = fail_as_warning or any(
             robot.fail_as_warning for robot in robots)
 
-        print(f"Opening context: {self._name}")
+        self.logger.info(f"Opening context: {self._name}")
 
         # Register signal handler
         signal.signal(signal.SIGUSR1, self.catch_signal)
@@ -91,7 +96,7 @@ class TestContext:
             host=postgres_address, port=POSTGRES_DATABASE_PORT, timeout=120)
 
         # Start the database
-        self._database_process, self._database_address = \
+        self._database_process, self.database_address = \
             self.run_docker(image="//packages/database:postgres-img-bundle",
                             args=["--port", str(DATABASE_PORT),
                                   "--controller_port", str(
@@ -101,7 +106,7 @@ class TestContext:
                                   "--address", "0.0.0.0"])
 
         # Start the Mosquitto broker
-        self._mqtt_process, self._mqtt_address = self.run_docker(
+        self._mqtt_process, self.mqtt_address = self.run_docker(
             "//packages/utils/test_utils:mosquitto-img-bundle",
             args=[str(MQTT_PORT_TCP), str(MQTT_PORT_WEBSOCKET)],
             delay=delay.mqtt_broker)
@@ -115,18 +120,18 @@ class TestContext:
         self._server_process, _ = self.run_docker(
             "//packages/controllers/mission:mission-img-bundle",
             args=["--mqtt_port", str(MQTT_PORT),
-                  "--mqtt_host", self._mqtt_address,
+                  "--mqtt_host", self.mqtt_address,
                   "--mqtt_transport", str(MQTT_TRANSPORT),
                   "--mqtt_ws_path", str(MQTT_WS_PATH),
                   "--mqtt_prefix", str(MQTT_PREFIX),
-                  "--database_url", f"http://{self._database_address}:{DATABASE_CONTROLLER_PORT}"],
+                  "--database_url", f"http://{self.database_address}:{DATABASE_CONTROLLER_PORT}"],
             delay=delay.mission_dispatch)
 
         # Start simulator
         sim_args = ["--robots", " ".join(str(robot) for robot in self._robots),
                     "--speed", str(SIM_SPEED),
                     "--mqtt_port", str(MQTT_PORT),
-                    "--mqtt_host", self._mqtt_address,
+                    "--mqtt_host", self.mqtt_address,
                     "--mqtt_transport", str(MQTT_TRANSPORT),
                     "--mqtt_ws_path", str(MQTT_WS_PATH),
                     "--mqtt_prefix", str(MQTT_PREFIX),
@@ -139,18 +144,18 @@ class TestContext:
                                                delay=delay.mission_simulator)
 
         # Create db client
-        self.db_client = db_client.DatabaseClient(
-            f"http://{self._database_address}:{DATABASE_PORT}")
-        self.db_controller_client = db_client.DatabaseClient(
-            f"http://{self._database_address}:{DATABASE_CONTROLLER_PORT}")
+        self.md_url = f"http://{self.database_address}:{DATABASE_PORT}"
+        self.db_client = db_client.DatabaseClient(self.md_url)
+        self.md_ctrl_url = f"http://{self.database_address}:{DATABASE_CONTROLLER_PORT}"
+        self.db_controller_client = db_client.DatabaseClient(self.md_ctrl_url)
 
     def wait_for_database(self):
         test_utils.wait_for_port(
-            host=self._database_address, port=DATABASE_PORT, timeout=120)
+            host=self.database_address, port=DATABASE_PORT, timeout=120)
 
     def wait_for_mqtt(self):
         test_utils.wait_for_port(
-            host=self._mqtt_address, port=MQTT_PORT, timeout=120)
+            host=self.mqtt_address, port=MQTT_PORT, timeout=120)
 
     def restart_mission_server(self):
         self.close([self._server_process])
@@ -158,17 +163,17 @@ class TestContext:
         self._server_process, _ = self.run_docker(
             "//packages/controllers/mission:mission-img-bundle",
             args=["--mqtt_port", str(MQTT_PORT),
-                  "--mqtt_host", self._mqtt_address,
+                  "--mqtt_host", self.mqtt_address,
                   "--mqtt_transport", str(MQTT_TRANSPORT),
                   "--mqtt_ws_path", str(MQTT_WS_PATH),
                   "--mqtt_prefix", str(MQTT_PREFIX),
-                  "--database_url", f"http://{self._database_address}:{DATABASE_CONTROLLER_PORT}"])
+                  "--database_url", f"http://{self.database_address}:{DATABASE_CONTROLLER_PORT}"])
 
     def restart_mqtt_server(self):
         # Restart the Mosquitto broker
         self.close([self._mqtt_process])
         time.sleep(1)
-        self._mqtt_process, self._mqtt_address = self.run_docker(
+        self._mqtt_process, self.mqtt_address = self.run_docker(
             "//packages/utils/test_utils:mosquitto-img-bundle",
             args=[str(MQTT_PORT_TCP), str(MQTT_PORT_WEBSOCKET)])
         self.wait_for_mqtt()
@@ -201,13 +206,21 @@ class TestContext:
                 process.join()
                 process.close()
 
+    def call_teleop_service(self, robot_name: str, teleop: robot_object.RobotTeleopActionV1):
+        endpoint = self.md_url + f"/robot/{robot_name}/teleop"
+        response = requests.post(url=endpoint, params={"params": teleop.value})
+        if response.status_code == 200:
+            self.logger.info(f"Teleop {teleop.value} request sent")
+        else:
+            self.logger.info(f"Teleop {teleop.value} failed")
+
     def __enter__(self):
         return self
 
     def __exit__(self, type, value, traceback):
         self.close([self._server_process, self._database_process,
                     self._postgres_database, self._mqtt_process, self._sim_process])
-        print(f"Context closed: {self._name}", flush=True)
+        self.logger.info(f"Context closed: {self._name}")
 
 
 def mission_from_waypoints(robot: str, waypoints, name: Optional[str] = None, timeout: int = 1000):
@@ -259,26 +272,64 @@ def route_generator(parent: str = "root", name: str = None):
     return route_dict
 
 
-def action_generator(should_fail: bool = False, execution_time: float = 1,
-                     parent: str = "root", name: str = None) -> Dict:
+def move_generator(parent: str = "root", name: str = None, move: dict = {}):
+    """ Generate move dict
+
+    Args:
+        parent: parent name
+        name: node name
+
+    Returns:
+        Dict: move mission node
+    """
+    move_dict = {"move": move, "parent": parent}
+    if name is not None:
+        move_dict.update({"name": name})
+    return move_dict
+
+
+def action_generator(params: dict, parent: str = "root",
+                     name: str = None, action_type: str = "dummy_action") -> Dict:
     """ Generate action mission node
 
     Args:
-        should_fail (bool, optional): expection result for this action. Defaults to False.
-        execution_time (float, optional): time to finish the action. Defaults to 1.
+        params: action parameters
         parent: parent name
         name: node name
+        action_type: type of the action
 
     Returns:
         Dict: action mission node
     """
     action_dict = {"parent": parent,
-                   "action": {"action_type": "dummy_action",
-                              "action_parameters": {"should_fail": should_fail,
-                                                    "time": execution_time}}}
+                   "action": {"action_type": action_type,
+                              "action_parameters": params}}
     if name is not None:
         action_dict.update({"name": name})
     return action_dict
+
+
+def notify_generator(url: str, json_data: Dict,
+                     parent: str = "root", name: str = None) -> Dict:
+    """ Generate notify mission node
+
+    Args:
+        url (str): URL to make API call
+        json_data (Dict): JSON payload to be included in API call.
+        parent: parent name
+        name: node name
+
+    Returns:
+        Dict: notify mission node
+    """
+    notify_dict = {"parent": parent,
+                   "notify": {
+                       "url": url,
+                       "json_data": json_data
+                   }}
+    if name is not None:
+        notify_dict.update({"name": name})
+    return notify_dict
 
 
 def mission_object_generator(robot: str, mission_tree, timeout=1000):

@@ -117,6 +117,7 @@ disable=abstract-method,
         old-raise-syntax,
         parameter-unpacking,
         print-statement,
+        raise-missing-from, # TODO: Re-enable
         raising-string,
         range-builtin-not-iterating,
         raw_input-builtin,
@@ -124,10 +125,12 @@ disable=abstract-method,
         reduce-builtin,
         relative-import,
         reload-builtin,
+        return-value, # TODO: Re-enable
         round-builtin,
         setslice-method,
         signature-differs,
         standarderror-builtin,
+        superfluous-parens,
         suppressed-message,
         sys-max-int,
         too-few-public-methods,
@@ -166,7 +169,7 @@ output-format=text
 # command line instead of printing them on stdout. Reports (if any) will be
 # written in a file name "pylint_global.[txt|html]". This option is deprecated
 # and it will be removed in Pylint 2.0.
-files-output=no
+#files-output=no
 
 # Tells whether to display a full report or only the messages
 reports=no
@@ -287,7 +290,7 @@ single-line-if-stmt=yes
 # separator` is used to allow tabulation in dicts, etc.: {1  : 1,\n222: 2}.
 # `trailing-comma` allows a space between comma and closing bracket: (a, ).
 # `empty-line` allows space-only lines.
-no-space-check=
+#no-space-check=
 
 # Maximum number of lines in a module
 max-module-lines=99999
@@ -437,6 +440,6 @@ valid-metaclass-classmethod-first-arg=mcs
 
 # Exceptions that will emit a warning when being caught. Defaults to
 # "Exception"
-overgeneral-exceptions=StandardError,
-                       Exception,
-                       BaseException
+#overgeneral-exceptions=StandardError,
+#                       Exception,
+#                       BaseException

@@ -10,7 +10,7 @@ Isaac Mission Dispatch is a cloud service that enables the communication between
 The Mission Dispatch system is composed of two main components:
 1. The mission database microservice 
 
-    This component hosts REST APIs used to create, update, watch, and get the state of API mission/robot objects. It also manages persistence for objects, allowing them to rebuild their internal state if they crash or are restarted.
+    This component hosts REST APIs used to create, update, and get the state of API mission/robot objects. It also manages persistence for objects, allowing them to rebuild their internal state if they crash or are restarted.
 2. The mission dispatch microservice
 
     This component handles the communication with robots and manages mission state transitions. A mission is defined as a series of tasks needed to be completed by a specific robot. See the [Mission](#mission) section for more details of how a mission maps to VDA5050 orders. 
@@ -51,6 +51,8 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
     - [Mission Submission](#mission-submission)
         - [Submit Missions with REST API](#submit-missions-with-rest-api)
         - [Examples](#examples)
+    - [Teleoperation](#teleoperation)
+    - [Send Telemetry](#send-telemetry)
   - [Additional Resources](#additional-resources)
     - [Isaac ROS Mission Client](#isaac-ros-mission-client)
     - [VDA5050 Connector](#vda5050-connector)
@@ -71,7 +73,7 @@ This package is designed and tested to be compatible with laptops or desktops wi
 ### What is a Mission
 A mission is a series of tasks to be completed by a given robot. It is represented as a behavior tree generated from the `mission_tree`, which is a list of task nodes that may be performed on the robot. The advantage of using a mission tree instead of an array of steps is that it allows the robot to react to all sorts of situations. The behavior tree has an implicit sequence node as its root, which is also named “root”. 
 
-Each mission tree node has four possible states: `IDLE`, `RUNNING`, `SUCCESS`, and `FAILURE`. Currently supported mission tree nodes are: *sequence*, *selector*, *route*, and *action*:
+Each mission tree node has four possible states: `IDLE`, `RUNNING`, `SUCCESS`, and `FAILURE`. Currently supported mission tree nodes are: *sequence*, *selector*, *route*, *action*, and *notify*:
 
   | Field    | Type               | Parameters                                                                                                                                                         | Description                                                                                                                                                                                                                                                                                 |
   | -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -80,10 +82,10 @@ Each mission tree node has four possible states: `IDLE`, `RUNNING`, `SUCCESS`, a
   | sequence | `Optional[object]` | None                                                                                                                                                               | Executes children nodes in order. If the child node currently running completes with `SUCCESS`, then the next child node is started. Otherwise, the sequence node completes with `FAILURE`. If all children nodes complete with `SUCCESS`, then the sequence node completes with `SUCCESS`. |
   | selector | `Optional[object]` | None                                                                                                                                                               | Executes children nodes in order. If the child node currently running completes with `SUCCESS`, then the selector node completes with `SUCCESS`. Otherwise, the next child node is started. If all children nodes fail, then the selector node completes with `FAILURE`.                    |
   | action   | `Optional[object]` | `name(string)`: The name of the action to trigger on the robot <br> `params(json)`: An arbitrary, action-specific JSON payload to send as parameters to the action | Performs some generic, named action on the robot.                                                                                                                                                                                                                                           |
-  | route    | `Optional[object]` | `waypoints(List[VDA5050NodePosition])`: A list of poses for the robot to visit                                                                                               | Instructs the robot to travel a given route. The robot may or may not visit intermediate waypoints, but the final waypoint must be visited. Will return either `SUCCESS` or `FAILURE`, depending on whether the robot can successfully navigate to the final waypoint.                      |
+  | route    | `Optional[object]` | `waypoints(List[Pose2D])`: A list of 2D poses for the robot to visit                                                                                               | Instructs the robot to travel a given route. The robot may or may not visit intermediate waypoints, but the final waypoint must be visited. Will return either `SUCCESS` or `FAILURE`, depending on whether the robot can successfully navigate to the final waypoint.                      |
+  | notify | `Optional[object]` | `url(string)`: The url to send an HTTP POST request <br> `json_data(json)`: JSON payload to be included in API call | Dispatch will use the URL and JSON to make an API call. |
 
 `VDA5050NodePosition` corresponds to the `nodePosition` data structure in the [VDA5050 protocol](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) section 6.7.
-
 
 The difference between the *sequence* and *selector* node: a *sequence* node will attempt to run all the child nodes as long as `SUCCESS` is being returned and will instantly return `FAILURE` upon a node failing, whereas "selector" will attempt to get only a single `SUCCESS`, and upon failure, will keep trying child nodes until it gets either gets `SUCCESS` or exhausts all child nodes.
  
@@ -103,7 +105,7 @@ We provide three deployment options here for using Mission Dispatch services: de
 Download the repository:
 
 ```
-git clone https://github.com/NVIDIA-ISAAC/isaac_mission_dispatch
+git clone --recurse-submodules https://github.com/isaac_amr_platform/mission_dispatch.git
 ```
 
 Continue here to run Mission Dispatch microservices directly on a computer, CSP, or EGX. Skip to section [Getting Started with Local Development](#getting-started-with-local-development) to develop services locally on your computer.
@@ -119,7 +121,7 @@ An interactive documentation page that can be used to submit missions will be la
     The MQTT broker is used for communication between the Mission Dispatch and the robots. There are many ways to run an MQTT broker, including as a system daemon, a stand alone application, or a docker container. Here we use mosquitto as our MQTT broker. Start the mosquitto broker by running the following:
 
     ```
-    cd isaac_mission_dispatch 
+    cd mission_dispatch
     docker run -it --network host -v ${PWD}/packages/utils/test_utils/mosquitto.sh:/mosquitto.sh -d eclipse-mosquitto:latest sh mosquitto.sh 1883 9001
     ```
 
@@ -148,10 +150,10 @@ An interactive documentation page that can be used to submit missions will be la
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:isaac_ros
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.0.0
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:isaac_ros --help
+    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.0.0 --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -159,7 +161,7 @@ An interactive documentation page that can be used to submit missions will be la
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:isaac_ros
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:3.0.0
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -167,7 +169,7 @@ An interactive documentation page that can be used to submit missions will be la
 To simplify the steps in the [Deploy with Official Docker Containers](#deploy-with-official-docker-containers) section, the two dependencies (MQTT broker/Postgres database) and the Mission Dispatch microservices (database/dispatch) are packaged into one Docker Compose file. You can simply run the steps below to achieve the bring up all the microservices:
 
 ```
-cd isaac_mission_dispatch/docker_compose
+cd mission_dispatch/docker_compose
 docker compose -f mission_dispatch_services.yaml up
 # run `docker compose -f mission_dispatch_services.yaml down` if you want to bring down all the services.
 ```
@@ -196,14 +198,14 @@ docker compose -f mission_dispatch_services.yaml up
 2. Set up Mission Dispatch services:
 
     ```
-    cd isaac_mission_dispatch 
+    cd mission_dispatch
     helm install mission-dispatch charts --set hostDomainName=<your_host_doamin_name>
     ```
 
 3. Test with Mission Simulator:
 
     ```
-    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:isaac_ros --robots carter_x,4,5 \
+    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:3.0.0 --robots carter_x,4,5 \
         --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
@@ -216,7 +218,7 @@ All building and running of applications through bazel
 should be done within this container to ensure that the correct dependencies are present. 
 
 ```
-cd isaac_mission_dispatch 
+cd mission_dispatch
 docker build --network host -t isaac-mission-dispatch "${PWD}/docker"
 ```
 
@@ -327,13 +329,13 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:isaac_ros --robots \
+docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:3.0.0 --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
 ##### 2. Isaac ROS Mission Client with Isaac Sim 
 
-A ROS 2 Humble package that receives tasks and actions from the fleet management service through Mission Dispatch and updates its progress, state, and errors. It also performs navigation actions with [Nav2](https://navigation.ros.org/) and can be integrated with other ROS actions.
+A ROS 2 Humble package that receives tasks and actions from the fleet management service through Mission Dispatch and updates its progress, state, and errors. It also performs navigation actions with [Nav2](https://nav2.org/) and can be integrated with other ROS actions.
 
 See the tutorials given in the [ROS Mission Client](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client) for how to use Mission Dispatch services with ROS Mission Client and [NVIDIA Isaac Sim](https://developer.nvidia.com/isaac-sim).
 
@@ -346,7 +348,7 @@ Follow the first two steps in the [Running the TB3 adapter](https://github.com/i
 **Note**: if you choose to use VDA5050_connector as a mission client:
 - Simply run the Docker Compose file to bring up all the Mission Dispatch microservices:
     ```
-    cd isaac_mission_dispatch/docker_compose
+    cd mission_dispatch/docker_compose
     docker compose -f vda5050-adapter-examples.yaml up
     # run `docker compose -f vda5050-adapter-examples.yaml down` if you want to bring down all the services.
     ```
@@ -409,6 +411,16 @@ the `name` you used for one of the robot objects you created earlier. If you set
 object to `"carter01"`, use that to fill in the `robot` field for the mission. 
 
 **Note**: A `mission_tree` includes multiple mission nodes. A mission node can only be one of the four node types mentioned in the  [Mission](#mission) section. When sending a mission, a user should choose one and remove the other three in the request body.
+
+<details><summary>Click for GET /mission filters</summary>
+
+| Filter name       | Effect                                                        | Value |
+| ------            | ------                                                        | ------|
+|   state           |    Returns missions that are in the given state               | `PENDING`, `RUNNING`, `COMPLETED`, `CANCELED`, or `FAILED` |
+|   started_after   |    Returns missions where `start_timestamp >= started_after`    | ISO 8601 format `string` |
+|   started_before  |    Returns missions where `start_timestamp <= started_before`   | ISO 8601 format `string` |
+|   most_recent     |    Returns the most recent `N` missions by `start_timestamp`    | `int` |
+</details>
 
 This video shows the step-by-step process to create and query multiple missions with multiple robots given in the [Examples](#examples) section.
 
@@ -597,6 +609,87 @@ Watch the Submitting Missions video tutorial given in the [Submitting Missions](
 
 **Note**: We provide a dummy action server in our mission client simulator for the user to test the above complex mission. The action parameters include the expected behavior `should_fail` (0: success; 1: failure) and the execution time (in seconds) `time` should be given to simulate a real action server.
 
+### Teleoperation
+
+Users can initiate teleoperation by either making an API call or adding a `pause_order` action node to a mission tree. Teleoperation can be stopped by using the stop teleop API call.
+
+<div align="center"><img src="docs/resources/teleop.png" width="500px"/></div>
+
+[VDA5050](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) does not come with standard teleoperation functionality. Instead, we offer custom instant actions such as startTeleop, stopTeleop, and the action pause_order specifically designed for teleoperation. If you are using this Mission Dispatch and [Isaac ROS mission client](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client), no additional actions are required. However, if you intend to customize either Mission Dispatch or Mission Client, please refer to the specifications below during your development process. 
+
+Related action definition, their parameters, effects and scope:
+
+
+| Action      | Counter Action | Description                                                                                           | Idempotent | Parameter | Linked State | Instant | Node | Edge |
+|-------------|----------------|-------------------------------------------------------------------------------------------------------|------------|-----------|--------------|---------|------|------|
+| startTeleop  | stopTeleop      | Pause current order. No more AGV driving movements - reaching next node is not necessary. Order is resumable.                                                                             | yes        | -         | -       | yes     | no   | no   |
+| stopTeleop   | startTeleop     | Deactivates the pause order mode. Movement and all other actions will be resumed (if any).              | yes        | -         | -       | yes     | no   | no   |
+| pause_order   | -     | Pause current order. No more AGV driving movements - reaching next node is not necessary. Order is resumable.           | yes        | -         | -       | no     | yes  | yes   |
+
+Description of related action states:
+
+| Action       | Initializing                                             | Running                                                     | Paused                                                      | Finished                                                    | Failed                                                      |
+|--------------|----------------------------------------------------------|--------------------------------------------------------------|-------------------------------------------------------------|-------------------------------------------------------------|-------------------------------------------------------------|
+| startTeleop / pause_order   | -  |Activation of the mode is in preparation. If the AGV supports an instant transition, this state can be omitted.             | - | Vehicle stands still. The current order is paused.                                    | The pause mode can not be activated for some reason (e.g., overridden by hardware switch).                                                       |                                                             |
+| stopTeleop    | -           | Deactivation of the mode is in preparation. If the AGV supports an instant transition, this state can be omitted. | -  | The pause order mode is deactivated. The current order will be resumed.                        |  The pause mode cannot be deactivated for some reason (e.g., overwritten by hardware switch). |
+
+When a user initiates teleoperation through `POST /robot/<name>/teleop` endpoint (params: `START`), it sends a `startTeleop` instant action to the Mission Client, which in turn stops ongoing navigation tasks. Additionally, the Mission Client ceases to forward any further nodes to the NAV stack. User can then control the robot using their remote controller for teleoperation. Upon completion of the teleoperation, user can terminate it through the same endpoint with params `STOP`. A `stopTeleop` instant action is dispatched from Mission Dispatch to the Mission Client. Mission Client then re-establishes communication with the NAV stack to resume the execution of orders.
+
+
+If the user intends to integrate teleoperation within a specific mission node, they can achieve this by incorporating `pause_order` action within the mission nodes. This action can enable the teleoperation functionality within the context of the mission node. This node will be set to completed only after user stop the TELEOP with an API call `POST /robot/<name>/teleop` endpoint (params: `STOP`). An example mission:
+
+
+```
+{
+  "robot": "carter01",
+  "mission_tree": [
+    {
+      "name": "goto_pickup",
+      "parent": "root",
+      "route": {
+        "waypoints": [
+          {
+            "x": 5,
+            "y": 0,
+            "theta": 0,
+            "map_id": "map"
+          }
+        ]
+      }
+    },
+    {
+      "name": "forklift_teleop",
+      "parent": "root",
+      "action": {
+        "action_type": "pause_order",
+        "action_parameters": {}
+      }
+    },
+    {
+      "name": "goto_dropoff",
+      "parent": "root",
+      "route": {
+        "waypoints": [
+          {
+            "x": 0,
+            "y": 0,
+            "theta": 0,
+            "map_id": "map"
+          }
+        ]
+      }
+    }
+  ],
+  "timeout": 300,
+  "deadline": "2023-11-01T00:21:31.112Z",
+  "needs_canceled": false,
+  "name": "mission_with_teleop"
+}
+```
+
+### Send Telemetry
+Currently, Mission Dispatch collects data on robot status durations and records the outcomes of missions, such as COMPLETED or FAILED. We provide a `TelemetrySender` dummy class for transmitting telemetry data. Users can replace this class with their custom telemetry client provider. This allows for the submission of personalized telemetry to your systems, which can then be viewed in tools like Grafana and similar platforms.
+
 ## Additional Resources
 ### Isaac ROS Mission Client
 A [ROS mission client package](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client) that allows the mission dispatch to communicate with robots through the MQTT protocol. Visit this resource for more video tutorials on using Mission Dispatch with Isaac ROS Mission Client, as well as for [NVIDIA Isaac Sim](https://developer.nvidia.com/isaac-sim) running on local and cloud.
@@ -605,12 +698,15 @@ A [ROS mission client package](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mis
 The [vda5050_connector](https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector) package is another mission client (in ROS 2 Galactic) that provides a set of ROS 2 nodes for connecting a ROS 2-based robot to the Mission Dispatch.
 
 ### Isaac ROS Troubleshooting
-Check [here](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/blob/main/docs/troubleshooting.md) for solutions to problems with Isaac ROS.
+Check [here](https://nvidia-isaac-ros.github.io/troubleshooting/index.html) for solutions to problems with Isaac ROS.
 
 ## Updates
 | Date       | Changes         |
 | ---------- | --------------- |
 | 2022-10-19 | Initial release |
+| 2023-04-04 | Isaac ROS DP3   |
+| 2023-10-17 | Isaac ROS 2.0.0 |
+| 2024-05-30 | Isaac ROS 3.0.0 |
 
 ## Frequently Asked Questions
 * How is the issue of mission persistence exactly addressed?
@@ -627,5 +723,5 @@ Yes!
 
 
 ## License
-Isaac Mission Dispatch is under [Apache 2.0 license](https://github.com/NVIDIA-ISAAC/isaac_mission_dispatch/blob/release-dp2/LICENSE).
+Isaac Mission Dispatch is under [Apache 2.0 license](https://github.com/NVIDIA-ISAAC/isaac_mission_dispatch/blob/main/LICENSE).
 
