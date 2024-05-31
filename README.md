@@ -706,7 +706,7 @@ Check [here](https://nvidia-isaac-ros.github.io/troubleshooting/index.html) for 
 | 2022-10-19 | Initial release |
 | 2023-04-04 | Isaac ROS DP3   |
 | 2023-10-17 | Isaac ROS 2.0.0 |
-| 2024-05-30 | Isaac 3.0.0     |
+| 2024-05-30 | Isaac ROS 3.0.0 |
 
 ## Frequently Asked Questions
 * How is the issue of mission persistence exactly addressed?
