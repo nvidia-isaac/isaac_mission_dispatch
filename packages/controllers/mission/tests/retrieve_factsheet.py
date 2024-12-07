@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@ class TestRetrieveFactsheet(unittest.TestCase):
         robot_arm = simulator.RobotInit("test01", 0, 0, 0, robot_type="arm")
         robot_amr = simulator.RobotInit("test02", 0, 0, 0, robot_type="amr")
         with test_context.TestContext([robot_arm, robot_amr], tick_period=1.0) as ctx:
-            
+
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
@@ -46,7 +46,7 @@ class TestRetrieveFactsheet(unittest.TestCase):
             time.sleep(2)
             factsheet = ctx.db_client.get(robot_object.RobotObjectV1, "test01").status.factsheet
 
-            assert(factsheet.agv_class == "FORKLIFT")
+            assert (factsheet.agv_class == "FORKLIFT")
 
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test02", status={}))
@@ -57,8 +57,8 @@ class TestRetrieveFactsheet(unittest.TestCase):
             time.sleep(2)
             factsheet = ctx.db_client.get(robot_object.RobotObjectV1, "test02").status.factsheet
 
-            assert(factsheet.agv_class == "CARRIER")
+            assert (factsheet.agv_class == "CARRIER")
 
-   
+
 if __name__ == "__main__":
     unittest.main()

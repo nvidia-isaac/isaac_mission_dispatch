@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import time
 
 # How often to poll to see if a port is open
 PORT_CHECK_PERIOD = 0.1
+
 
 def check_port_open(port: int, host: str = "localhost") -> bool:
     with contextlib.closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as test_socket:

@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,11 +20,13 @@ import os
 import subprocess
 import sys
 
+
 def main():
     # Run pylint in a subprocess
     result = subprocess.run([sys.executable, "-m", "pylint"] + sys.argv[1:],
                             env={"PYTHONPATH": os.environ["PYTHONPATH"]})
     sys.exit(result.returncode)
+
 
 if __name__ == "__main__":
     main()

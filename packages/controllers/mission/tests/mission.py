@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -199,8 +199,8 @@ class TestMissions(unittest.TestCase):
     def test_mission_move_node(self):
         """ Test sending a mission with move nodes """
         robot = simulator.RobotInit("test01", 1, 1, math.pi/4)
-        move_mission = [test_context.move_generator(move={"distance": 1}), 
-        test_context.move_generator(move={"rotation": math.pi/4})]
+        move_mission = [test_context.move_generator(move={"distance": 1}),
+                        test_context.move_generator(move={"rotation": math.pi/4})]
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
             ctx.db_client.create(

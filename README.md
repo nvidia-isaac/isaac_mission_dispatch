@@ -60,8 +60,11 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
   - [Updates](#updates)
   - [License](#license)
 
-## Latest Update
+## Latest Updates
+Update 2024-12   : Addition of detection_results to database, bug fixes.
+
 Update 2023-10   : Addition of battery status, update/cancel missions, nodePosition, bug fixes.
+
 Update 2022-10-19: Initial release
 
 ## Supported Platforms
