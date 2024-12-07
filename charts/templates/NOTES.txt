@@ -1,9 +1,0 @@
-Make sure the nvcr secret is created at:
-kubectl -n {{ .Values.namespace.name }} create secret docker-registry nvcr-secret \
-  --docker-server=nvcr.io --docker-username=\$oauthtoken \
-  --docker-password=<nvcr_api_key>
-
-Make sure the Postgres database secret is created:
-kubectl -n {{ .Values.namespace.name }} create secret generic postgres-secret \
-  --from-literal=db_username=<database_username> \
-  --from-literal=db_password=<database_password>
