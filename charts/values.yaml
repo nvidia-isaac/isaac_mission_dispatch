@@ -18,8 +18,8 @@
 images:
   # The name of the kubernetes secret which contains a key for pull images from nvcr.io
   nvcrSecret: nvcr-secret
-  missionDispatch: nvcr.io/nvidia/isaac/mission-dispatch:isaac_ros
-  missionDatabase: nvcr.io/nvidia/isaac/mission-database:isaac_ros
+  missionDispatch: nvcr.io/nvidia/isaac/mission-dispatch:3.2.0
+  missionDatabase: nvcr.io/nvidia/isaac/mission-database:3.2.0
 
 # The url to host mission dispatch at for external users
 missionUrl: /mission-dispatch
@@ -30,7 +30,7 @@ dbHostName: postgres-db-postgresql
 # The port of the Postgres database that Mission Dispatch will connect to
 dbPort: 5432
 # The hostname of mission dispatch server
-hostDomainName: stg.isaac-amr.nvidia.com
+hostDomainName: www.example.com
 
 # Default Nginx Ingress Annotations
 # Nginx Ingress Controller Github: https://github.com/kubernetes/ingress-nginx
