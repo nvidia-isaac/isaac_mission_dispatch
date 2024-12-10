@@ -61,7 +61,7 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
   - [License](#license)
 
 ## Latest Updates
-Update 2024-12   : Added support for Isaac Manipulator, VDA5050 factsheet request compatability, and bug fixes.
+Update 2024-12   : Added support for Isaac Manipulator, VDA5050 factsheet request compatibility, and bug fixes. Moved 
 
 Update 2023-10   : Addition of battery status, update/cancel missions, nodePosition, bug fixes.
 
