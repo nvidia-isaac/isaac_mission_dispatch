@@ -126,16 +126,19 @@ SCENARIO5_EXPECTED_STATUSES = [
 
 MISSION_TREE_6 = [
     test_context.route_generator(),
-    test_context.action_generator(params={"should_fail": 0, "time": 1}, parent="root", name="pickup"),
+    test_context.action_generator(
+        params={"should_fail": 0, "time": 1}, parent="root", name="pickup"),
     {"name": "selector_1", "selector": {}, "parent": "root"},
     test_context.action_generator(
         params={"should_fail": 1, "time": 1}, parent="selector_1", name="fake_failure_route"),
     {"name": "sequence_1", "sequence": {}, "parent": "selector_1"},
     test_context.route_generator(parent="sequence_1"),
-    test_context.action_generator(params={"should_fail": 0, "time": 1}, parent="sequence_1", name="dropoff"),
+    test_context.action_generator(
+        params={"should_fail": 0, "time": 1}, parent="sequence_1", name="dropoff"),
     {"name": "constant_node", "constant": {
         "success": "false"}, "parent": "sequence_1"},
-    test_context.action_generator(params={"should_fail": 0, "time": 1}, parent="root", name="dropoff_at_goal"),
+    test_context.action_generator(
+        params={"should_fail": 0, "time": 1}, parent="root", name="dropoff_at_goal"),
 ]
 SCENARIO6_EXPECTED_STATUSES = [
     mission_object.MissionStatusV1(state="PENDING", current_node=0),
@@ -218,6 +221,72 @@ SCENARIO9_EXPECTED_STATUSES = [
                                    node_status={'root': {'state': 'FAILED'},
                                                 '0': {'state': 'COMPLETED'},
                                                 '1': {'state': 'FAILED'}})]
+
+MISSION_TREE_10 = [
+    {
+        "route": {
+            "waypoints": [
+                {
+                    "x": test_context.pose1D_generator(),
+                    "y": test_context.pose1D_generator(),
+                    "theta": 0,
+                    "allowedDeviationXY": 0
+                },
+                {
+                    "x": test_context.pose1D_generator(),
+                    "y": test_context.pose1D_generator(),
+                    "theta": 0,
+                    "allowedDeviationXY": 1
+                },
+                {
+                    "x": test_context.pose1D_generator(),
+                    "y": test_context.pose1D_generator(),
+                    "theta": 0,
+                    "allowedDeviationXY": 1
+                },
+                {
+                    "x": test_context.pose1D_generator(),
+                    "y": test_context.pose1D_generator(),
+                    "theta": 0,
+                    "allowedDeviationXY": 0
+                },
+                {
+                    "x": test_context.pose1D_generator(),
+                    "y": test_context.pose1D_generator(),
+                    "theta": 0,
+                    "allowedDeviationXY": 1
+                },
+                {
+                    "x": test_context.pose1D_generator(),
+                    "y": test_context.pose1D_generator(),
+                    "theta": 0,
+                    "allowedDeviationXY": 0
+                }
+            ]
+        },
+        "parent": "root"
+    }
+]
+
+SCENARIO10_EXPECTED_STATUSES = [
+    mission_object.MissionStatusV1(state="PENDING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0,
+                                   task_status={
+                                       '0': 0
+                                   }),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0,
+                                   task_status={
+                                       '0': 1
+                                   }),
+    mission_object.MissionStatusV1(state="RUNNING", current_node=0,
+                                   task_status={
+                                       '0': 2
+                                   }),
+    mission_object.MissionStatusV1(state="COMPLETED", current_node=0,
+                                   task_status={
+                                       '0': 2
+                                   })]
 
 
 class TestMissionTree(unittest.TestCase):
@@ -311,7 +380,7 @@ class TestMissionTree(unittest.TestCase):
                 self.assertEqual(update.status.state, expected_state.state)
                 self.assertEqual(update.status.current_node,
                                  expected_state.current_node)
-                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                if update.status.state == mission_object.MissionStateV1.FAILED:
                     self.assertEqual(update.status.node_status,
                                      expected_state.node_status)
                     break
@@ -522,6 +591,30 @@ class TestMissionTree(unittest.TestCase):
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
                     self.assertEqual(update.status.node_status,
                                      expected_state.node_status)
+                    break
+
+    def test_task_status(self):
+        """ Test mission task status """
+        robot = simulator.RobotInit("test01", 0, 0, 0)
+        with test_context.TestContext([robot]) as ctx:
+            # Create the robot and then the mission
+            ctx.db_client.create(
+                api_objects.RobotObjectV1(name="test01", status={}))
+            time.sleep(0.25)
+            ctx.db_client.create(
+                test_context.mission_object_generator("test01", MISSION_TREE_10))
+
+            for expected_state, update in zip(SCENARIO10_EXPECTED_STATUSES,
+                                              ctx.db_client.watch(api_objects.MissionObjectV1)):
+                self.assertEqual(update.status.state, expected_state.state)
+                self.assertEqual(update.status.current_node,
+                                 expected_state.current_node)
+                self.assertEqual(update.status.task_status,
+                                 expected_state.task_status)
+                if update.status.state == mission_object.MissionStateV1.COMPLETED:
+                    # Make sure that the task_status is updated correctly
+                    self.assertEqual(update.status.task_status,
+                                     expected_state.task_status)
                     break
 
 

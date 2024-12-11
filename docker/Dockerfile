@@ -16,7 +16,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Install python and dependencies
-FROM nvcr.io/nvidia/base/ubuntu:20.04_x64_2022-09-23
+FROM nvcr.io/nvidia/base/ubuntu:22.04_20240212
+ARG DEBIAN_FRONTEND=noninteractive
 
 # Install python
 RUN apt-get update && apt-get install python3 python3-pip -y
@@ -24,7 +25,7 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Install bazel
 RUN apt-get install wget -y
-RUN wget --progress=dot:mega https://github.com/bazelbuild/bazel/releases/download/4.0.0/bazel-4.0.0-linux-x86_64 -O /usr/bin/bazel
+RUN wget --progress=dot:mega https://github.com/bazelbuild/bazel/releases/download/6.5.0/bazel-6.5.0-linux-x86_64 -O /usr/bin/bazel
 RUN chmod +x /usr/bin/bazel
 
 # Install docker
@@ -42,3 +43,5 @@ RUN echo \
   $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 RUN apt-get update
 RUN apt-get install -y docker-ce-cli
+
+RUN apt-get update && apt-get install libgl1-mesa-glx ffmpeg libsm6 libxext6 python3-tk -y

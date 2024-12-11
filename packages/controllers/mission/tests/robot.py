@@ -96,7 +96,7 @@ class TestMissions(unittest.TestCase):
     def test_robot_offline(self):
         """ Test that the server labels the robot as offline after not receiving messages """
         robot = simulator.RobotInit("test01", 0, 0, 0)
-        with test_context.TestContext([robot], tick_period=2.0) as ctx:
+        with test_context.TestContext([robot], tick_period=2.0, disable_request_factsheet=True) as ctx:
             # Create the robot and then the mission
             ctx.db_client.create(api_objects.RobotObjectV1(
                 name="test01", heartbeat_timeout=1, status={}))
@@ -193,7 +193,7 @@ class TestMissions(unittest.TestCase):
             # Publish charging=True message
             # State should transition to CHARGING
             topic = f"{test_context.MQTT_PREFIX}/test01/state"
-            message = types.VDA5050OrderInformation(
+            message = types.VDA5050State(
                 headerId=0,
                 timestamp=datetime.datetime.now().isoformat(),
                 manufacturer="",
@@ -206,9 +206,12 @@ class TestMissions(unittest.TestCase):
                 edgeStates=[],
                 actionStates=[],
                 agvPosition={"x": 0, "y": 0,
-                            "theta": 0, "mapId": ""},
+                             "theta": 0, "mapId": ""},
                 batteryState={"batteryCharge": 50,
-                            "charging": True})
+                              "charging": True},
+                safetyState=types.VDA5050SafetyStatus(
+                    eStop=types.VDA5050EStop.NONE, fieldViolation=False
+                ))
             client.publish(topic, message.json())
             time.sleep(0.5)
             for update in watcher:
@@ -243,7 +246,8 @@ class TestMissions(unittest.TestCase):
             # Simulate teleop
             time.sleep(5)
             # Stop teleop
-            ctx.call_teleop_service(robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
+            ctx.call_teleop_service(
+                robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
             for update in ctx.db_client.watch(api_objects.MissionObjectV1):
                 if update.status.state == mission_object.MissionStateV1.COMPLETED:
                     break
@@ -274,13 +278,15 @@ class TestMissions(unittest.TestCase):
             # Simulate teleop
             watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
             # Start teleop
-            ctx.call_teleop_service(robot_name="test01", teleop=robot_object.RobotTeleopActionV1.START)
+            ctx.call_teleop_service(
+                robot_name="test01", teleop=robot_object.RobotTeleopActionV1.START)
             time.sleep(5)
             for update in watcher:
                 if update.status.state == robot_object.RobotStateV1.TELEOP:
                     break
             # Stop teleop
-            ctx.call_teleop_service(robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
+            ctx.call_teleop_service(
+                robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
             for update in watcher:
                 if update.status.state == robot_object.RobotStateV1.ON_TASK:
                     break

@@ -65,6 +65,7 @@ class VDA5050ActionBlockingType(str, enum.Enum):
 class VDA5050InstantActionType(str, enum.Enum):
     # cancel order
     CANCEL_ORDER = "cancelOrder"
+    FACTSHEET_REQUEST = "factsheetRequest"
 
     @classmethod
     def values(cls):
@@ -85,6 +86,7 @@ class NVActionType(str, enum.Enum):
     LOAD_MAP = "load_map"
     PAUSE_ORDER = "pause_order"
     DOCK_ROBOT = "dock_robot"
+    GET_OBJECTS = "get_objects"
 
 
 class VDA5050ActionStatus(str, enum.Enum):
@@ -267,6 +269,12 @@ class VDA5050AgvPosition(pydantic.BaseModel):
     deviationRange: float = 0.0
 
 
+class VDA5050Velocity(pydantic.BaseModel):
+    vx: float
+    vy: float
+    omega: float
+
+
 class VDA5050ErrorReference(pydantic.BaseModel):
     referenceKey: str
     referenceValue: str
@@ -434,8 +442,56 @@ class VDA5050BatteryState(pydantic.BaseModel):
     reach: Optional[int]
 
 
-class VDA5050OrderInformation(pydantic.BaseModel):
-    """ Feedback on the current mission and robot status from the client """
+class VDA5050BoundingBoxReference(pydantic.BaseModel):
+    theta: Optional[int]
+    x: int
+    y: int
+    z: int
+
+
+class VDA5050LoadDimensions(pydantic.BaseModel):
+    height: Optional[int]
+    length: int
+    width: int
+
+
+class VDA5050Load(pydantic.BaseModel):
+    boundingBoxReference: Optional[VDA5050BoundingBoxReference]
+    loadDimensions: Optional[VDA5050LoadDimensions]
+    loadId: Optional[str]
+    loadPosition: Optional[str]
+    loadType: Optional[str]
+    weight: Optional[int]
+
+
+class VDA5050OperatingMode(str, enum.Enum):
+    AUTOMATIC = "AUTOMATIC"
+    MANUAL = "MANUAL"
+    SEMIAUTOMATIC = "SEMIAUTOMATIC"
+    SERVICE = "SERVICE"
+    TEACHIN = "TEACHIN"
+
+
+class VDA5050EStop(str, enum.Enum):
+    AUTOACK = "AUTOACK"
+    MANUAL = "MANUAL"
+    NONE = "NONE"
+    REMOTE = "REMOTE"
+
+
+class VDA5050SafetyStatus(pydantic.BaseModel):
+    eStop: VDA5050EStop = VDA5050EStop.NONE
+    fieldViolation: bool = False
+
+    @pydantic.validator("eStop", pre=True)
+    def default_operating_mode(cls, v):
+        if v == "":
+            return VDA5050EStop.NONE
+        return v
+
+
+class VDA5050State(pydantic.BaseModel):
+    """Feedback on the current mission and robot status from the client"""
     headerId: int
     timestamp: str
     version: str = "2.0.0"
@@ -450,16 +506,121 @@ class VDA5050OrderInformation(pydantic.BaseModel):
     actionStates: List[VDA5050ActionState] = []
     batteryState: Optional[VDA5050BatteryState]
     driving: bool = False
-    agvPosition: VDA5050AgvPosition
+    agvPosition: Optional[VDA5050AgvPosition]
     errors: List[VDA5050Error] = []
-    information: List[VDA5050Info] = []
+    information: Optional[List[VDA5050Info]] = []
+    distanceSinceLastNode: Optional[float] = 0.0
+    loads: Optional[List[VDA5050Load]] = []
+    newBaseRequest: Optional[bool] = False
+    operatingMode: VDA5050OperatingMode = VDA5050OperatingMode.AUTOMATIC
+    paused: Optional[bool] = False
+    safetyState: VDA5050SafetyStatus
+    velocity: Optional[VDA5050Velocity]
+    zoneSetId: Optional[str] = ""
+
+    @pydantic.validator("operatingMode", pre=True)
+    def default_operating_mode(cls, v):
+        if v == "":
+            return VDA5050OperatingMode.AUTOMATIC
+        return v
+
+
+class VDA5050TypeSpecification(pydantic.BaseModel):
+    """Describes general properties of a robot"""
+    seriesName: Optional[str]
+    seriesDescription: Optional[str]
+    agvKinematic: Optional[str]
+    agvClass: str = "CARRIER"
+    maxLoadMass: Optional[float]
+    localizationTypes: Optional[List[str]]
+    navigationTypes: Optional[List[str]]
+
+
+class VDA5050PhysicalParameters(pydantic.BaseModel):
+    """Describes physical properties of a robot"""
+    speedMin: Optional[float]
+    speedMax: float = 1
+    accelerationMax: Optional[float]
+    decelerationMax: Optional[float]
+    heightMin: Optional[float]
+    heightMax: Optional[float]
+    width: Optional[float]
+    length: Optional[float]
+
+
+# # # # # # # # # # # # # # # # # # # #
+#                                     #
+# !TODO: PAVAN                        #
+# fill classes with correct fields    #
+# # # # # # # # # # # # # # # # # # # #
+class VDA5050ProtocolLimits(pydantic.BaseModel):
+    temporary: int
+
+
+class VDA5050ProtocolFeatures(pydantic.BaseModel):
+    temporary: int
+
+
+class VDA5050AGVGeometry(pydantic.BaseModel):
+    temporary: int
+
+
+class VDA5050LoadSpecification(pydantic.BaseModel):
+    temporary: int
+
+
+class VDA5050LocalizationParameters(pydantic.BaseModel):
+    temporary: int
+
+
+class VDA5050Factsheet(pydantic.BaseModel):
+    """Specification information specific to each robot type"""
+    headerId: int = 0
+    timestamp: str = ""
+    version: str = "2.0.0"
+    manufacturer: str = ""
+    serialNumber: str = ""
+    typeSpecification: VDA5050TypeSpecification = VDA5050TypeSpecification()
+    physicalParameters: VDA5050PhysicalParameters = VDA5050PhysicalParameters()
+    protocolLimits: Optional[VDA5050ProtocolLimits]
+    protocolFeatures: Optional[VDA5050ProtocolFeatures]
+    agvGeometry: Optional[VDA5050AGVGeometry]
+    loadSpecification: Optional[VDA5050LoadSpecification]
+    localizationParameters: Optional[VDA5050LocalizationParameters]
+
+
+class VDA5050Visualization(pydantic.BaseModel):
+    """For a near real-time position and velocity update of the AGV"""
+    headerId: int
+    timestamp: str
+    version: str = "2.0.0"
+    manufacturer: str = ""
+    serialNumber: str = ""
+    agvPosition: Optional[VDA5050AgvPosition]
+    velocity: Optional[VDA5050Velocity]
 
 
 class VDA5050InstantActions(pydantic.BaseModel):
-    """ Instant Action """
+    """Instant Action"""
     headerId: int
     timestamp: str
     version: str = "2.0.0"
     manufacturer: str = ""
     serialNumber: str = ""
     instantActions: List[VDA5050Action]
+
+
+class VDA5050ConnectionState(str, enum.Enum):
+    CONNECTIONBROKEN = "CONNECTIONBROKEN"
+    OFFLINE = "OFFLINE"
+    ONLINE = "ONLINE"
+
+
+class VDA5050Connection(pydantic.BaseModel):
+    """Connection"""
+    headerId: int
+    timestamp: str
+    version: str = "2.0.0"
+    manufacturer: str = ""
+    serialNumber: str = ""
+    connectionState: VDA5050ConnectionState = VDA5050ConnectionState.OFFLINE

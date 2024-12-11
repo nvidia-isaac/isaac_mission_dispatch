@@ -16,41 +16,20 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
+load("//bzl:python.bzl", "mission_dispatch_py_binary")
 load("@python_third_party//:requirements.bzl", "requirement")
-load("//bzl:python.bzl", "mission_dispatch_py_library")
-load("@io_bazel_rules_docker//container:container.bzl", "container_image", "container_bundle")
 
-mission_dispatch_py_library(
-    name = "test_utils",
-    srcs = [
-        "__init__.py",
-        "docker.py",
-        "network.py",
+
+mission_dispatch_py_binary(
+    name = "pick_and_place_ui",
+    main = "pick_and_place_ui.py",
+    srcs = glob(["*.py"]),
+    deps = [
+        requirement("Pillow"),
+        requirement("requests"),
+        requirement("websockets"),
+        requirement("opencv-python"),
+        requirement("numpy"),
     ],
-    visibility = ["//visibility:public"]
-)
-
-container_image(
-    name = "mosquitto-img",
-    base = "@mosquitto_base//image",
-    files = [
-        "mosquitto.sh"
-    ],
-    entrypoint = ["sh", "mosquitto.sh"]
-)
-
-container_bundle(
-    name = "mosquitto-img-bundle",
-    images = {
-        "bazel-image": ":mosquitto-img"
-    },
-    visibility = ["//visibility:public"]
-)
-
-container_bundle(
-    name = "postgres-database-img-bundle",
-    images = {
-        "bazel-image": "@postgres_database_base//image"
-    },
     visibility = ["//visibility:public"]
 )

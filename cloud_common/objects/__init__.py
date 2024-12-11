@@ -21,8 +21,14 @@ from typing import Dict, List, Type
 from cloud_common.objects.mission import MissionObjectV1
 from cloud_common.objects.object import ApiObject, ApiObjectMethod, ObjectLifecycleV1
 from cloud_common.objects.robot import RobotObjectV1
+from cloud_common.objects.detection_results import DetectionResultsObjectV1
 
-ALL_OBJECTS: List[Type[ApiObject]] = [RobotObjectV1, MissionObjectV1]
-OBJECT_DICT: Dict[str, Type[ApiObject]] = {obj.get_alias(): obj for obj in ALL_OBJECTS}
+ALL_OBJECTS: List[Type[ApiObject]] = [
+    RobotObjectV1, MissionObjectV1, DetectionResultsObjectV1]
+OBJECT_DICT: Dict[str, Type[ApiObject]] = {
+    obj.get_alias(): obj for obj in ALL_OBJECTS}
+
+USER_API_OBJECT_DICT: Dict[str, Type[ApiObject]] = {
+    obj.get_alias(): obj for obj in ALL_OBJECTS if obj is not DetectionResultsObjectV1}
 
 ApiObjectType = Type[ApiObject]

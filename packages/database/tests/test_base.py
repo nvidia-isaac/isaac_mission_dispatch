@@ -26,7 +26,9 @@ import unittest
 
 import cloud_common.objects as api_objects
 from cloud_common.objects.robot import RobotStateV1
+from cloud_common.objects.robot import RobotTypeV1
 from cloud_common.objects.mission import MissionStateV1, MissionNodeV1
+from cloud_common.objects.detection_results import DetectedObject, DetectedObjectBoundingBox2D
 from packages.utils import test_utils
 
 # A label to add to a robot to demonstrate modifing the spec
@@ -45,7 +47,7 @@ class TestDatabase(unittest.TestCase):
         TestDatabase.has_process_crashed = True
         raise OSError("Child process crashed!")
 
-    def run_docker(cls, image: str, args: List[str], docker_args: Union[List[str],None] = None,
+    def run_docker(cls, image: str, args: List[str], docker_args: Union[List[str], None] = None,
                    delay: int = 0) -> Tuple[multiprocessing.Process, str]:
         pid = os.getpid()
         queue: multiprocessing.queues.Queue[str] = multiprocessing.Queue()
@@ -88,8 +90,10 @@ class TestDatabase(unittest.TestCase):
         # Make sure we can get two robots by id
         robot0 = inserted_robots[0]
         robot1 = inserted_robots[1]
-        robot0_from_db = self.client.get(api_objects.RobotObjectV1, robot0.name)
-        robot1_from_db = self.client.get(api_objects.RobotObjectV1, robot1.name)
+        robot0_from_db = self.client.get(
+            api_objects.RobotObjectV1, robot0.name)
+        robot1_from_db = self.client.get(
+            api_objects.RobotObjectV1, robot1.name)
         self.assertEqual(robot0, robot0_from_db)
         self.assertNotEqual(robot0, robot1_from_db)
         self.assertEqual(robot1, robot1_from_db)
@@ -113,8 +117,10 @@ class TestDatabase(unittest.TestCase):
         self.client.update_spec(robot1)
 
         # Make sure the objects returned from the DB match
-        robot0_from_db = self.client.get(api_objects.RobotObjectV1, robot0.name)
-        robot1_from_db = self.client.get(api_objects.RobotObjectV1, robot1.name)
+        robot0_from_db = self.client.get(
+            api_objects.RobotObjectV1, robot0.name)
+        robot1_from_db = self.client.get(
+            api_objects.RobotObjectV1, robot1.name)
         self.assertEqual(robot0, robot0_from_db)
         self.assertEqual(robot1.name, robot1_from_db.name)
         self.assertEqual(robot1.labels, robot1_from_db.labels)
@@ -137,8 +143,10 @@ class TestDatabase(unittest.TestCase):
         self.controller_client.update_status(robot1)
 
         # Make sure the objects returned from the DB match
-        robot0_from_db = self.client.get(api_objects.RobotObjectV1, robot0.name)
-        robot1_from_db = self.client.get(api_objects.RobotObjectV1, robot1.name)
+        robot0_from_db = self.client.get(
+            api_objects.RobotObjectV1, robot0.name)
+        robot1_from_db = self.client.get(
+            api_objects.RobotObjectV1, robot1.name)
         self.assertEqual(robot1, robot1_from_db)
         self.assertEqual(robot0.name, robot0_from_db.name)
         self.assertEqual(robot0.status, robot0_from_db.status)
@@ -154,7 +162,8 @@ class TestDatabase(unittest.TestCase):
         # User should not be able to hard delete
         self.client.delete(api_objects.RobotObjectV1, robot0.name)
         fetched_robot = self.client.get(api_objects.RobotObjectV1, robot0.name)
-        self.assertEqual(fetched_robot.lifecycle, api_objects.ObjectLifecycleV1.PENDING_DELETE)
+        self.assertEqual(fetched_robot.lifecycle,
+                         api_objects.ObjectLifecycleV1.PENDING_DELETE)
 
         # User should not be able to update status
         with self.assertRaises(api_objects.common.ICSUsageError):
@@ -171,7 +180,8 @@ class TestDatabase(unittest.TestCase):
         # Method /watch should return all items of a given type in the DB
         # Method /watch should notify when an object is created
         watcher_client = self.client.watch(api_objects.RobotObjectV1)
-        watcher_controller_client = self.controller_client.watch(api_objects.RobotObjectV1)
+        watcher_controller_client = self.controller_client.watch(
+            api_objects.RobotObjectV1)
         robot0 = api_objects.RobotObjectV1(status={}, name="carter00")
         self.client.create(robot0)
         update = next(watcher_controller_client)
@@ -193,11 +203,12 @@ class TestDatabase(unittest.TestCase):
         self.client.delete(api_objects.RobotObjectV1, robot0.name)
         update_client = next(watcher_client)
         update_controller_client = next(watcher_controller_client)
-        self.assertEqual(update_client.lifecycle, api_objects.ObjectLifecycleV1.PENDING_DELETE)
+        self.assertEqual(update_client.lifecycle,
+                         api_objects.ObjectLifecycleV1.PENDING_DELETE)
         self.assertEqual(update_controller_client.lifecycle,
                          api_objects.ObjectLifecycleV1.PENDING_DELETE)
 
-    def setup_robots(self):
+    def setup_carter_robots(self):
         # Robots
         # -----------------------------------------
         # name      battery     state       online
@@ -224,7 +235,7 @@ class TestDatabase(unittest.TestCase):
 
             # Even numbered robots are IDLE, odd are ON_TASK
             robot.status.state = RobotStateV1.IDLE if i % 2 == 0 else RobotStateV1.ON_TASK
-
+            robot.status.factsheet.agv_class = RobotTypeV1.AMR.value
             # For every two robots, alternate online to true and false
             # i.e. carter0, carter1 are true, carter2, carter3 are false, etc.
             robot.status.online = i % 4 <= 1
@@ -234,35 +245,93 @@ class TestDatabase(unittest.TestCase):
 
         return robots
 
+    def setup_carter_and_arm_robots(self):
+        robots = [api_objects.RobotObjectV1(status={}, name="arm01"),
+                  api_objects.RobotObjectV1(status={}, name="carter01")]
+
+        for robot in robots:
+            self.client.create(robot)
+
+        # Add a single arm
+        robots[0].status.factsheet.agv_class = RobotTypeV1.ARM.value
+
+        # Add a single carter
+        robots[1].status.factsheet.agv_class = RobotTypeV1.AMR.value
+
+        for robot in robots:
+            self.controller_client.update_status(robot)
+
+        return robots
+
+    def setup_arm_and_detection_results(self):
+        robots = [api_objects.RobotObjectV1(status={}, name="arm01")]
+        detection_results = [
+            api_objects.DetectionResultsObjectV1(name="arm01")]
+
+        for robot in robots:
+            self.client.create(robot)
+
+        for detection_result in detection_results:
+            self.controller_client.create(detection_result)
+
+        # Add a single arm
+        robots[0].status.factsheet.agv_class = RobotTypeV1.ARM.value
+
+        # Set up dummy response from object detection
+        detection_results[0].status.detected_objects = [
+            DetectedObject(bbox2d=DetectedObjectBoundingBox2D())]
+
+        # Changing an entry in the uploaded object
+        detection_results[0].status.detected_objects[0].object_id = 4
+
+        for robot in robots:
+            self.controller_client.update_status(robot)
+
+        for detection_result in detection_results:
+            self.controller_client.update_status(detection_result)
+
+        return robots, detection_results
+
     def cleanup_robots(self, robots):
         for robot in robots:
-            self.controller_client.delete(api_objects.RobotObjectV1, robot.name)
+            self.controller_client.delete(
+                api_objects.RobotObjectV1, robot.name)
+
+    def cleanup_detection_results(self, detection_results):
+        for detection_result in detection_results:
+            self.controller_client.delete(
+                api_objects.DetectionResultsObjectV1, detection_result.name)
 
     def test_list_robot_with_battery_state_online(self):
         # Set up robots
-        robots = self.setup_robots()
+        robots = self.setup_carter_robots()
 
         # Should return all if no parameters given
         all_robots = self.client.list(api_objects.RobotObjectV1)
         assert len(all_robots) == len(robots)
 
         # Should work with only min_battery query
-        battery_ge_50 = self.client.list(api_objects.RobotObjectV1, {"min_battery": 50})
+        battery_ge_50 = self.client.list(
+            api_objects.RobotObjectV1, {"min_battery": 50})
         assert len(battery_ge_50) == 5
 
-        battery_ge_90 = self.client.list(api_objects.RobotObjectV1, {"min_battery": 90})
+        battery_ge_90 = self.client.list(
+            api_objects.RobotObjectV1, {"min_battery": 90})
         assert len(battery_ge_90) == 1
         assert robots[9] == battery_ge_90[0]
 
-        battery_ge_91 = self.client.list(api_objects.RobotObjectV1, {"min_battery": 91})
+        battery_ge_91 = self.client.list(
+            api_objects.RobotObjectV1, {"min_battery": 91})
         assert len(battery_ge_91) == 0
 
         # Should work with only state query
-        idle_robots = self.client.list(api_objects.RobotObjectV1, {"state": "IDLE"})
+        idle_robots = self.client.list(
+            api_objects.RobotObjectV1, {"state": "IDLE"})
         assert len(idle_robots) == 5
 
         # Should work with only online query
-        online_robots = self.client.list(api_objects.RobotObjectV1, {"online": True})
+        online_robots = self.client.list(
+            api_objects.RobotObjectV1, {"online": True})
         assert len(online_robots) == 6
 
         # --- Combination tests ---
@@ -324,7 +393,7 @@ class TestDatabase(unittest.TestCase):
         self.cleanup_robots(robots)
 
     def test_list_robot_names(self):
-        robots = self.setup_robots()
+        robots = self.setup_carter_robots()
 
         # Test names
         params: Dict[str, Any] = {
@@ -352,9 +421,12 @@ class TestDatabase(unittest.TestCase):
     def test_mission_queries(self):
         tree = [MissionNodeV1(selector={})]
         missions = [
-            api_objects.MissionObjectV1(name="mission0", robot="0", mission_tree=tree, status={}),
-            api_objects.MissionObjectV1(name="mission1", robot="1", mission_tree=tree, status={}),
-            api_objects.MissionObjectV1(name="mission2", robot="2", mission_tree=tree, status={})
+            api_objects.MissionObjectV1(
+                name="mission0", robot="0", mission_tree=tree, status={}),
+            api_objects.MissionObjectV1(
+                name="mission1", robot="1", mission_tree=tree, status={}),
+            api_objects.MissionObjectV1(
+                name="mission2", robot="2", mission_tree=tree, status={})
         ]
         for mission in missions:
             self.client.create(mission)
@@ -377,19 +449,22 @@ class TestDatabase(unittest.TestCase):
         params: Dict[str, Any] = {
             "started_after": datetime.datetime(2001, 1, 1)
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 3
 
         params = {
             "started_after": datetime.datetime(2001, 1, 2)
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 2
 
         params = {
             "started_after": datetime.datetime(2002, 12, 30)
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 1
         assert missions[2] == returned_missions[0]
 
@@ -397,7 +472,8 @@ class TestDatabase(unittest.TestCase):
             "started_after": datetime.datetime(2002, 1, 1),
             "started_before": datetime.datetime(2003, 1, 1)
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 1
         assert missions[1] == returned_missions[0]
 
@@ -406,21 +482,24 @@ class TestDatabase(unittest.TestCase):
             "started_before": datetime.datetime(2002, 1, 1),
             "state": "PENDING"
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 1
         assert missions[0] == returned_missions[0]
 
         params = {
             "most_recent": 1
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 1
         assert missions[2] == returned_missions[0], returned_missions[0]
 
         params = {
             "most_recent": 2
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 2
         assert missions[2] == returned_missions[0]
         assert missions[1] == returned_missions[1]
@@ -429,6 +508,48 @@ class TestDatabase(unittest.TestCase):
             "started_before": datetime.datetime(2003, 1, 1),
             "most_recent": 1
         }
-        returned_missions = self.client.list(api_objects.MissionObjectV1, params)
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
         assert len(returned_missions) == 1
         assert missions[1] == returned_missions[0]
+
+        params = {
+            "robot": "0"
+        }
+        returned_missions = self.client.list(
+            api_objects.MissionObjectV1, params)
+        assert len(returned_missions) == 1
+        assert missions[0] == returned_missions[0]
+
+    def test_list_arm_names(self):
+        robots = self.setup_carter_and_arm_robots()
+
+        # Test AMR query
+        params = {
+            "robot_type": [RobotTypeV1.AMR.value]
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        print("Number of AMRs: " + str(len(output)))
+        assert len(output) == 1
+        assert robots[1] in output
+
+        # Test arm query
+        params = {
+            "robot_type": [RobotTypeV1.ARM.value]
+        }
+        output = self.client.list(api_objects.RobotObjectV1, params)
+        assert len(output) == 1
+        assert robots[0] in output
+
+        self.cleanup_robots(robots)
+
+    def test_detection_results_push(self):
+        robots, detection_results = self.setup_arm_and_detection_results()
+        output = self.client.list(api_objects.DetectionResultsObjectV1)
+
+        assert len(output) == 1
+        assert detection_results[0] in output
+        assert output[0].status.detected_objects[0].object_id == 4
+
+        self.cleanup_detection_results(detection_results)
+        self.cleanup_robots(robots)

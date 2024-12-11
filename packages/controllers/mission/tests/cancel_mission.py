@@ -296,7 +296,6 @@ class TestCancelMissions(unittest.TestCase):
             self.assertEqual(
                 len(ctx.db_client.list(api_objects.MissionObjectV1)), 0)
 
-
     def test_cancel_completed_mission(self):
         """ Test if a completed mission can be canceled """
         waypoint_x = 1
@@ -323,6 +322,7 @@ class TestCancelMissions(unittest.TestCase):
             # Cancel the mission
             with self.assertRaises(common.ICSUsageError):
                 ctx.db_client.cancel_mission(test_mission.name)
+
 
 if __name__ == "__main__":
     unittest.main()

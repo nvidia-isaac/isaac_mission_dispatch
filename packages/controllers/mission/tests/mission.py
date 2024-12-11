@@ -199,8 +199,8 @@ class TestMissions(unittest.TestCase):
     def test_mission_move_node(self):
         """ Test sending a mission with move nodes """
         robot = simulator.RobotInit("test01", 1, 1, math.pi/4)
-        move_mission = [test_context.move_generator(move={"distance": 1}), 
-        test_context.move_generator(move={"rotation": math.pi/4})]
+        move_mission = [test_context.move_generator(move={"distance": 1}),
+                        test_context.move_generator(move={"rotation": math.pi/4})]
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
             ctx.db_client.create(

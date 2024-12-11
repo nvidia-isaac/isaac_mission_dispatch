@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 images:
   # The name of the kubernetes secret which contains a key for pull images from nvcr.io
   nvcrSecret: nvcr-secret
-  missionDispatch: nvcr.io/nvidia/isaac/mission-dispatch:isaac_ros
-  missionDatabase: nvcr.io/nvidia/isaac/mission-database:isaac_ros
+  missionDispatch: nvcr.io/nvidia/isaac/mission-dispatch:3.2.0
+  missionDatabase: nvcr.io/nvidia/isaac/mission-database:3.2.0
 
 # The url to host mission dispatch at for external users
 missionUrl: /mission-dispatch

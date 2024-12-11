@@ -34,7 +34,7 @@ mission_dispatch_py_binary(
       "//packages/utils:metrics",
       requirement("pydantic"),
       requirement("paho-mqtt"),
-      requirement("pyyaml"),
+      requirement("PyYAML"),
       requirement("py_trees"),
     ] + telemetry_deps,
     visibility = ["//visibility:public"]

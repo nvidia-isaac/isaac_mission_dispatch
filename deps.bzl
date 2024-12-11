@@ -16,7 +16,6 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
-load("@rules_python//python:pip.bzl", "pip_install")
 load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
 load("@io_bazel_rules_docker//container:container.bzl", "container_pull")
 load("@io_bazel_rules_docker//python3:image.bzl", _py3_image_repos = "repositories")
@@ -24,19 +23,6 @@ load("@io_bazel_rules_docker//contrib:dockerfile_build.bzl", "dockerfile_image")
 load("@io_bazel_rules_docker//container:load.bzl", "container_load")
 
 def mission_dispatch_workspace():
-
-    # Install python dependencies from pip
-    pip_install(
-        name = "python_third_party",
-        requirements = "@com_nvidia_isaac_mission_dispatch//bzl:requirements.txt"
-    )
-
-    # Install linting dependencies from pip
-    pip_install(
-        name = "python_third_party_linting",
-        requirements = "@com_nvidia_isaac_mission_dispatch//bzl:requirements_linting.txt"
-    )
-
     # Pull dependencies needed for docker containers
     container_deps()
 

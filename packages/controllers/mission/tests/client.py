@@ -33,6 +33,7 @@ import paho.mqtt.client as mqtt_client
 import pydantic
 
 import packages.controllers.mission.vda5050_types as types
+from cloud_common.objects.detection_results import DetectedObject, DetectedObjectBoundingBox2D
 
 DISTANCE_THRESHOLD = 0.05
 
@@ -50,6 +51,7 @@ class ActionObject:
                                           types.NVInstantActionType]):
         self._action_type = action_type
         self._status = types.VDA5050ActionStatus.WAITING
+        self._result_description = ""
 
     @property
     def triggered(self):
@@ -66,6 +68,10 @@ class ActionObject:
     @property
     def get_status(self):
         return self._status
+
+    @property
+    def get_result_description(self):
+        return self._result_description
 
     def reset(self):
         self._status = types.VDA5050ActionStatus.WAITING
@@ -171,11 +177,16 @@ class DockingActionServer(ActionObject):
         self.logger = logging.getLogger(LOGGING_NAME)
         super().__init__(types.NVActionType.DOCK_ROBOT)
 
-    def start(self, params=None):
+    def start(self, params):
         self.logger.info("Start docking action")
         self._status = types.VDA5050ActionStatus.RUNNING
-        # Simulate dorking for 5s
         self._completed_time = time.time() + 5
+        assert "dock_pose" in params
+        # dock_pose is a string that represents: "x,y,yaw"
+        dock_pose = params["dock_pose"].split(",")
+        assert len(dock_pose) == 3
+        self.robot.state.agvPosition.x = float(dock_pose[0])
+        self.robot.state.agvPosition.y = float(dock_pose[1])
 
     def update_status(self):
         if time.time() < self._completed_time:
@@ -185,13 +196,38 @@ class DockingActionServer(ActionObject):
         return self._status
 
 
+class DetectionActionServer(ActionObject):
+    """An action server that executes object detection"""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.GET_OBJECTS)
+
+    def start(self, params):
+        self.logger.info("Start detection action")
+        self._status = types.VDA5050ActionStatus.RUNNING
+
+        self._completed_time = time.time() + 1
+
+    def update_status(self):
+        if time.time() < self._completed_time:
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FINISHED
+            self._result_description = json.dumps([
+                DetectedObject(bbox2d=DetectedObjectBoundingBox2D()).dict()])
+
+        return self._status
+
+
 class RobotInit:
     """Represents the initial state of a robot in the simulation"""
 
     def __init__(self, name: str, x: float, y: float, theta: float = 0.0, map_id: str = "map",
                  failure_period: int = 0, battery: float = 0.0,
                  manufacturer: str = "", serial_number: str = "",
-                 fail_as_warning=False):
+                 fail_as_warning=False, robot_type=""):
         self.name = name
         self.x = x
         self.y = y
@@ -202,6 +238,7 @@ class RobotInit:
         self.manufacturer = manufacturer
         self.serial_number = serial_number
         self.fail_as_warning = fail_as_warning
+        self.robot_type = robot_type
 
     def __str__(self) -> str:
         params = [self.name, self.x, self.y, self.theta,
@@ -210,6 +247,8 @@ class RobotInit:
             params.append(self.manufacturer)
         if self.serial_number != "":
             params.append(self.serial_number)
+        if self.robot_type != "":
+            params.append(self.robot_type)
         return ",".join(str(param) for param in params)
 
 
@@ -218,11 +257,12 @@ class Robot:
 
     def __init__(self, init: RobotInit, client: mqtt_client.Client, speed: float,
                  tick_period: float = 0.25, mqtt_prefix: str = "uagv/v2/Company",
-                 metrics_dir: Optional[str] = None, fail_as_warning: bool = False):
+                 metrics_dir: Optional[str] = None, fail_as_warning: bool = False,
+                 ):
         self.logger = logging.getLogger(LOGGING_NAME)
         self.name = init.name
         self.order: Optional[types.VDA5050Order] = None
-        self.state = types.VDA5050OrderInformation(
+        self.state = types.VDA5050State(
             headerId=0,
             timestamp="",
             manufacturer=init.manufacturer,
@@ -237,7 +277,24 @@ class Robot:
                          "theta": init.theta, "mapId": init.map_id},
             actionStates=[],
             batteryState={"batteryCharge": init.battery,
-                          "charging": False})
+                          "charging": False},
+            safetyState=types.VDA5050SafetyStatus(
+                eStop=types.VDA5050EStop.NONE, fieldViolation=False
+            )
+        )
+        self.visualization = types.VDA5050Visualization(
+            headerId=0,
+            timestamp="",
+            manufacturer=init.manufacturer,
+            serialNumber=init.serial_number,
+            agvPosition={
+                "x": init.x,
+                "y": init.y,
+                "theta": init.theta,
+                "mapId": init.map_id,
+            },
+            velocity={"vx": 0.0, "vy": 0.0, "omega": 0.0},
+        )
         self.client = client
         self.failure_period = init.failure_period
         self.fail_as_warning = fail_as_warning or init.fail_as_warning
@@ -257,6 +314,8 @@ class Robot:
         self._map_load_action_server = MapLoadActionServer(robot=self)
         self._teleop_action_server = TeleopActionServer(robot=self)
         self._docking_action_server = DockingActionServer(robot=self)
+        self._detection_action_server = DetectionActionServer(robot=self)
+        self.robot_type = init.robot_type
 
     @property
     def action_server_triggered(self):
@@ -270,15 +329,31 @@ class Robot:
         self.client.publish(
             f"{self._mqtt_prefix}/{self.name}/state", self.state.json())
 
+    def publish_factsheet(self):
+        self.state.timestamp = datetime.datetime.now().isoformat()
+        self.client.publish(
+            f"{self._mqtt_prefix}/{self.name}/factsheet", self.factsheet.json())
+
+    def publish_visualization(self):
+        self.visualization.timestamp = datetime.datetime.now().isoformat()
+        self.client.publish(
+            f"{self._mqtt_prefix}/{self.name}/visualization", self.visualization.json()
+        )
+
     def move(self, target_node: types.VDA5050Node):
-        if target_node.nodePosition is not None:
+        if target_node.nodePosition is not None and \
+            self.state.agvPosition is not None and \
+                self.visualization.velocity is not None:
             # Are we still moving in the X direction?
             if abs(target_node.nodePosition.x - self.state.agvPosition.x) >= DISTANCE_THRESHOLD:
                 direction = 1 if target_node.nodePosition.x > self.state.agvPosition.x else -1
                 distance = min(abs(self.state.agvPosition.x - target_node.nodePosition.x),
                                self.speed * self.tick_period)
                 self.state.agvPosition.x += direction * distance
+                self.visualization.velocity.vx = self.speed
                 return True
+            else:
+                self.visualization.velocity.vx = 0.0
 
             # Are we still moving in the Y direction?
             if abs(target_node.nodePosition.y - self.state.agvPosition.y) >= DISTANCE_THRESHOLD:
@@ -286,7 +361,10 @@ class Robot:
                 distance = min(abs(self.state.agvPosition.y - target_node.nodePosition.y),
                                self.speed * self.tick_period)
                 self.state.agvPosition.y += direction * distance
+                self.visualization.velocity.vy = self.speed
                 return True
+            else:
+                self.visualization.velocity.vy = 0.0
 
             # Are we still moving in the theta direction?
             if abs(target_node.nodePosition.theta - self.state.agvPosition.theta) > 0.01:
@@ -297,7 +375,10 @@ class Robot:
                 delta = min(abs(self.state.agvPosition.theta - target_node.nodePosition.theta),
                             self.speed * self.tick_period)
                 self.state.agvPosition.theta += direction * delta
+                self.visualization.velocity.omega = self.speed
                 return True
+            else:
+                self.visualization.velocity.omega = 0.0
 
         # We have reached the target node
         if self._current_action_id == 0 and not self.action_server_triggered:
@@ -362,9 +443,13 @@ class Robot:
             return
 
         # Get the next node we are trying to get to
-        # To simulate Mission Client behavior, ignore nodePosition of first node
         target_node = self.order.nodes[self._current_node]
-        if self._current_node > 0 and self.move(target_node):
+        # To simulate Mission Client behavior, ignore nodePosition of first node
+        # But we still want to mark the lastNodeId and lastNodeSequenceId
+        if self._current_node == 0:
+            self.state.lastNodeSequenceId = target_node.sequenceId
+            self.state.lastNodeId = target_node.nodeId
+        elif self.move(target_node):
             return
 
         # Check if this node contains actions
@@ -379,7 +464,8 @@ class Robot:
                                      target_action.actionId)
                     self._current_action_id += 1
                     self.update_action_state(target_action.actionId,
-                                             types.VDA5050ActionStatus.FINISHED)
+                                             types.VDA5050ActionStatus.FINISHED,
+                                             action_server.get_result_description)
                     action_server.reset()
                 else:
                     if action_server.failed:
@@ -412,6 +498,9 @@ class Robot:
             return self._teleop_action_server
         elif action_type == types.NVActionType.DOCK_ROBOT.value:
             return self._docking_action_server
+        elif action_type == types.NVActionType.GET_OBJECTS.value:
+            return self._detection_action_server
+
         return self._dummy_action_server
 
     def update_task_duration(self):
@@ -422,15 +511,18 @@ class Robot:
         self._save_metrics = True
         self.order = None
 
-    def update_action_state(self, action_id, action_status):
+    def update_action_state(self, action_id, action_status, result_description=None):
         for action_state in self.state.actionStates:
             if action_state.actionId == action_id:
                 action_state.actionStatus = action_status
+                if result_description:
+                    action_state.resultDescription = result_description
                 break
 
     def update(self):
         self.execute_order()
         self.publish_state()
+        self.publish_visualization()
         if self._save_metrics and self._metrics_dir:
             with open(f"{self._metrics_dir}/{self.name}.json", "w+",
                       encoding="utf-8") as json_file:
@@ -503,11 +595,28 @@ class Robot:
                 self.publish_state()
                 self.logger.info("Finished %s Teleop", action.actionType)
 
+            elif action.actionType == types.VDA5050InstantActionType.FACTSHEET_REQUEST:
+                self.factsheet = types.VDA5050Factsheet()
+
+                if self.robot_type == "arm":
+                    self.factsheet.typeSpecification.agvClass = "FORKLIFT"
+                    self.factsheet.physicalParameters.speedMax = 0
+                    self.factsheet.headerId = 3
+                    self.factsheet.timestamp = datetime.datetime.now().isoformat()
+                    self.factsheet.manufacturer = ""
+                    self.factsheet.serialNumber = ""
+
+                elif self.robot_type == "amr":
+                    self.factsheet.typeSpecification.agvClass = "CARRIER"
+                    self.factsheet.physicalParameters.speedMax = 1
+
+                self.publish_factsheet()
+
 
 def robot_parser(spec: str) -> RobotInit:
     params = spec.split(",")
     map_id, theta, failure_period, battery = "map", "0", "0", "0"
-    manufacturer, serial_number = "", ""
+    manufacturer, serial_number, robot_type = "", "", ""
     if len(params) == 3:
         name, x, y = params
     elif len(params) == 4:
@@ -518,6 +627,8 @@ def robot_parser(spec: str) -> RobotInit:
         name, x, y, theta, map_id, failure_period = params
     elif len(params) == 7:
         name, x, y, theta, map_id, failure_period, battery = params
+    elif len(params) == 8:
+        name, x, y, theta, map_id, failure_period, battery, robot_type = params
     elif len(params) == 9:
         name, x, y, theta, map_id, failure_period, battery, manufacturer, serial_number = params
     else:
@@ -525,10 +636,11 @@ def robot_parser(spec: str) -> RobotInit:
                                          \"name,x,y,theta\", \"name,x,y,theta,map_id\",
                                          \"name,x,y,theta,map_id,failure_period\", or
                                          \"name,x,y,theta,map_id,failure_period,battery\", or
+                                         \"name,x,y,theta,map_id,failure_period,battery,robot_type\", or
                                          \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
                                          serial_number\"""")
     return RobotInit(name, float(x), float(y), float(theta), map_id, int(failure_period),
-                     float(battery), manufacturer, serial_number)
+                     float(battery), manufacturer, serial_number, robot_type=robot_type)
 
 
 class Simulator:
@@ -537,27 +649,48 @@ class Simulator:
     def __init__(self, robots: List[RobotInit], speed: float, mqtt_host: str = "localhost",
                  mqtt_transport: str = "tcp", mqtt_ws_path: Optional[str] = None,
                  mqtt_port: int = 1883, mqtt_prefix: str = "uagv/v2/Company",
+                 mqtt_username: Optional[str] = None,
+                 mqtt_password: Optional[str] = None,
                  tick_period: float = 0.25, metrics_dir: Optional[str] = None,
-                 fail_as_warning: bool = False, log_level: str = "WARNING"):
+                 fail_as_warning: bool = False, log_level: str = "WARNING",
+                 ):
         self.logger = logging.getLogger(LOGGING_NAME)
         self.logger.setLevel(log_level)
         logging.basicConfig(level=log_level,
                             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.mqtt_prefix = mqtt_prefix
         self.client = self._connect_to_mqtt(
-            mqtt_host, mqtt_port, mqtt_transport, mqtt_ws_path)
+            mqtt_host, mqtt_port, mqtt_transport, mqtt_ws_path,
+            mqtt_username, mqtt_password, robots[0])
         self.client.loop_start()
+
         self.robots = {init.name: Robot(init, self.client, speed, tick_period, mqtt_prefix,
                                         metrics_dir,
                                         fail_as_warning=fail_as_warning) for init in robots}
+
         self.tick_period = tick_period
         self.fail_as_warning = fail_as_warning
 
-    def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str]) \
-            -> mqtt_client.Client:
+    def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str],
+                         username: Optional[str], password: Optional[str],
+                         robot: RobotInit) -> mqtt_client.Client:
         client = mqtt_client.Client(transport=transport)
+        # Set the last will message with retain flag
+        last_will_message = types.VDA5050Connection(
+            headerId=1,
+            timestamp=datetime.datetime.now().isoformat(),
+            manufacturer=robot.manufacturer,
+            serialNumber=robot.serial_number,
+            connectionState=types.VDA5050ConnectionState.CONNECTIONBROKEN,
+        )
+        client.will_set(
+            f"{self.mqtt_prefix}/{robot.name}/connection",
+            payload=last_will_message.json(), qos=2, retain=True
+        )
         if transport == "websockets" and ws_path is not None:
             client.ws_set_options(path=ws_path)
+        if username and password:
+            client.username_pw_set(username=username, password=password)
         client.on_connect = self._mqtt_on_connect
         client.on_message = self._mqtt_on_message
         connected = False
@@ -565,6 +698,16 @@ class Simulator:
             try:
                 client.connect(host, port)
                 connected = True
+                # Publish the ONLINE message on the connect topic
+                connect_message = types.VDA5050Connection(
+                    headerId=0,
+                    timestamp=datetime.datetime.now().isoformat(),
+                    manufacturer=robot.manufacturer,
+                    serialNumber=robot.serial_number,
+                    connectionState=types.VDA5050ConnectionState.ONLINE,
+                )
+                client.publish(f"{self.mqtt_prefix}/{robot.name}/connection",
+                               payload=connect_message.json())
             except (ConnectionRefusedError, ConnectionResetError):
                 self.logger.info(
                     "Failed to connect to mqtt broker, retrying in %s s", MQTT_RECONNECT_PERIOD)
@@ -630,6 +773,10 @@ if __name__ == "__main__":
                         help="The path for the websocket if 'mqtt_transport' is 'websockets'")
     parser.add_argument("--mqtt_prefix", default="uagv/v2/RobotCompany",
                         help="The MQTT topic prefix")
+    parser.add_argument("--mqtt_username", default=None,
+                        help="The Username to authenticate to MQTT broker")
+    parser.add_argument("--mqtt_password", default=None,
+                        help="The password to authenticate to MQTT broker")
     parser.add_argument("--tick_period", default=0.25, type=float,
                         help="The tick period of the simulator")
     parser.add_argument("--metrics_dir", default=None,
@@ -637,6 +784,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="The minimum level of log messages to print")
+
     args = parser.parse_args()
     sim = Simulator(**vars(args))
     sim.run()

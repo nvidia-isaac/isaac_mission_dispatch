@@ -16,29 +16,54 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
-workspace(name = "com_nvidia_isaac_mission_dispatch")
+workspace(name="com_nvidia_isaac_mission_dispatch")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Include rules needed for pip
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
 http_archive(
-    name = "rules_python",
-    url = "https://github.com/bazelbuild/rules_python/releases/download/0.5.0/rules_python-0.5.0.tar.gz",
-    sha256 = "cd6730ed53a002c56ce4e2f396ba3b3be262fd7cb68339f0377a45e8227fe332",
+    name="rules_python",
+    sha256="778aaeab3e6cfd56d681c89f5c10d7ad6bf8d2f1a72de9de55b23081b2d31618",
+    strip_prefix="rules_python-0.34.0",
+    url="https://github.com/bazelbuild/rules_python/releases/download/0.34.0/rules_python-0.34.0.tar.gz",
 )
 
-# Include rules 
+load("@rules_python//python:repositories.bzl", "py_repositories")
+
+py_repositories()
+
+# Include rules
 http_archive(
-    name = "io_bazel_rules_docker",
-    sha256 = "b1e80761a8a8243d03ebca8845e9cc1ba6c82ce7c5179ce2b295cd36f7e394bf",
-    urls = ["https://github.com/bazelbuild/rules_docker/releases/download/v0.25.0/rules_docker-v0.25.0.tar.gz"],
+    name="io_bazel_rules_docker",
+    sha256="b1e80761a8a8243d03ebca8845e9cc1ba6c82ce7c5179ce2b295cd36f7e394bf",
+    urls=["https://github.com/bazelbuild/rules_docker/releases/download/v0.25.0/rules_docker-v0.25.0.tar.gz"],
 )
 load("@io_bazel_rules_docker//repositories:repositories.bzl",
-     container_repositories = "repositories")
+     container_repositories="repositories")
 container_repositories()
 
 
 # Setup workspace for mission dispatch
 load("//:deps.bzl", "mission_dispatch_workspace")
-mission_dispatch_workspace()
+load("@rules_python//python:pip.bzl", "pip_parse")
+# Install python dependencies from pip
+pip_parse(
+    name="python_third_party",
+    requirements_lock="@com_nvidia_isaac_mission_dispatch//bzl:requirements.txt"
+)
 
+load("@python_third_party//:requirements.bzl", "install_deps")
+install_deps()
+
+# Install linting dependencies from pip
+pip_parse(
+    name="python_third_party_linting",
+    requirements_lock="@com_nvidia_isaac_mission_dispatch//bzl:requirements_linting.txt"
+)
+
+load("@python_third_party_linting//:requirements.bzl", "install_deps")
+install_deps()
+
+mission_dispatch_workspace()

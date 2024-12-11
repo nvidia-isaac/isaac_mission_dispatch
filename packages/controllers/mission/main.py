@@ -37,6 +37,10 @@ if __name__ == "__main__":
                         help="The path for the websocket if mqtt_transport is websockets")
     parser.add_argument("--mqtt_prefix", default="uagv/v2/RobotCompany",
                         help="The prefix to add to all VDA5050 mqtt topics")
+    parser.add_argument("--mqtt_username", default=None,
+                        help="The Username to authenticate to MQTT broker")
+    parser.add_argument("--mqtt_password", default=None,
+                        help="The password to authenticate to MQTT broker")
     parser.add_argument("--database_url", default="http://localhost:5001",
                         help="The url where the database REST API is hosted")
     parser.add_argument("--mission_ctrl_url", default=None,
@@ -46,6 +50,8 @@ if __name__ == "__main__":
     parser.add_argument("--push_telemetry", action="store_true", help="Enable pushing telemetry")
     parser.add_argument("--telemetry_env", default="DEV",
                         help="Environment to push telemetry to (DEV | TEST | PROD)")
+    parser.add_argument("--disable_request_factsheet", action="store_true",
+                        help="Disable factsheet pulling")
 
     args = parser.parse_known_args()[0]
     logger = logging.getLogger("Isaac Mission Dispatch")

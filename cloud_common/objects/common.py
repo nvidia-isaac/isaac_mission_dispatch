@@ -70,7 +70,7 @@ class Pose2D(pydantic.BaseModel):
         description="The ID of the map this pose is associated with", default="")
     allowedDeviationXY: float = pydantic.Field(
         description="Allowed coordinate deviation radius",
-        default=0.0)
+        default=0.1)
     allowedDeviationTheta: float = pydantic.Field(
         description="Allowed theta deviation radians",
         default=0.0)

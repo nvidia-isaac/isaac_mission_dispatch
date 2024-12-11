@@ -56,6 +56,11 @@ class RobotTeleopActionV1(enum.Enum):
     STOP = "STOP"
 
 
+class RobotTypeV1(enum.Enum):
+    ARM = "FORKLIFT"
+    AMR = "CARRIER"
+
+
 class RobotSoftwareVersionV1(pydantic.BaseModel):
     os: str = ""
     app: str = ""
@@ -64,6 +69,11 @@ class RobotSoftwareVersionV1(pydantic.BaseModel):
 class RobotHardwareVersionV1(pydantic.BaseModel):
     manufacturer: str = ""
     serial_number: str = ""
+
+
+class RobotTypeIdentifierV1(pydantic.BaseModel):
+    agv_class: str = ""
+    speed_max: float = -1
 
 
 class RobotBatterySpecV1(pydantic.BaseModel):
@@ -78,6 +88,7 @@ class RobotStatusV1(pydantic.BaseModel):
     pose: common.Pose2D = common.Pose2D()
     software_version: RobotSoftwareVersionV1 = RobotSoftwareVersionV1()
     hardware_version: RobotHardwareVersionV1 = RobotHardwareVersionV1()
+    factsheet: RobotTypeIdentifierV1 = RobotTypeIdentifierV1()
     online: bool = False
     battery_level: float = 0.0
     state: RobotStateV1 = RobotStateV1.IDLE
@@ -109,6 +120,7 @@ class RobotQueryParamsV1(pydantic.BaseModel):
     state: Optional[RobotStateV1]
     online: Optional[bool]
     names: Optional[List[str]] = Field(Query(None))
+    robot_type: Optional[RobotTypeV1]
 
 
 class RobotObjectV1(RobotSpecV1, object.ApiObject):
@@ -142,7 +154,8 @@ class RobotObjectV1(RobotSpecV1, object.ApiObject):
             "max_battery": "(status->'battery_level')::float <= {}",
             "names": "name in {}",
             "state": "status->>'state' = '{}'",
-            "online": "status->>'online' = '{}'"
+            "online": "status->>'online' = '{}'",
+            "robot_type": "(status->'factsheet'->>'agv_class')::text = '{}'"
         }
 
     @classmethod
@@ -161,4 +174,3 @@ class RobotObjectV1(RobotSpecV1, object.ApiObject):
                 f"Robot {self.name} is in {self.status.state} and request cannot be satisfied.")
         self.switch_teleop = (teleop == RobotTeleopActionV1.START)
         return teleop.value + " teleop action received."
-

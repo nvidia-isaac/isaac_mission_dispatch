@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,10 +56,10 @@ services:
     image: ${MISSION_DISPATCH_IMAGE}
     depends_on: 
       - mission-database
-    command: ["--mqtt_host", mosquitto,
+    command: ["--mqtt_host", deployment-mosquitto-1,
               "--mqtt_port", "${MQTT_PORT_TCP}",
               "--database_url", "http://mission-database:${DATABASE_CONTROLLER_PORT}",
-              "--mqtt_prefix", uagv/v1/OSRF]
+              "--mqtt_prefix", uagv/v2/OSRF]
     networks:
       - vda5050-adapter
 

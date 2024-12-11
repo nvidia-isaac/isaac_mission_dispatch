@@ -64,7 +64,7 @@ class TestContext:
     crashed_process = False
 
     def __init__(self, robots, name="test context", delay: Delay = Delay(),
-                 tick_period: float = 0.25, enforce_start_order: bool = True, fail_as_warning=False):
+                 tick_period: float = 0.25, enforce_start_order: bool = True, fail_as_warning=False, disable_request_factsheet=False):
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger("Isaac Mission Dispatch Test Context")
@@ -116,15 +116,21 @@ class TestContext:
             self.wait_for_mqtt()
             self.wait_for_database()
 
-        # Start mission server
-        self._server_process, _ = self.run_docker(
-            "//packages/controllers/mission:mission-img-bundle",
-            args=["--mqtt_port", str(MQTT_PORT),
+        dispatch_args = ["--mqtt_port", str(MQTT_PORT),
                   "--mqtt_host", self.mqtt_address,
                   "--mqtt_transport", str(MQTT_TRANSPORT),
                   "--mqtt_ws_path", str(MQTT_WS_PATH),
                   "--mqtt_prefix", str(MQTT_PREFIX),
-                  "--database_url", f"http://{self.database_address}:{DATABASE_CONTROLLER_PORT}"],
+                  "--database_url", f"http://{self.database_address}:{DATABASE_CONTROLLER_PORT}",
+                  ]
+
+        if disable_request_factsheet:
+            dispatch_args.append("--disable_request_factsheet")
+        
+        # Start mission server
+        self._server_process, _ = self.run_docker(
+            "//packages/controllers/mission:mission-img-bundle",
+            args=dispatch_args,
             delay=delay.mission_dispatch)
 
         # Start simulator
@@ -135,7 +141,9 @@ class TestContext:
                     "--mqtt_transport", str(MQTT_TRANSPORT),
                     "--mqtt_ws_path", str(MQTT_WS_PATH),
                     "--mqtt_prefix", str(MQTT_PREFIX),
-                    "--tick_period", str(tick_period)]
+                    "--tick_period", str(tick_period),
+                    ]
+
         if fail_as_warning:
             sim_args.append("--fail_as_warning")
 
@@ -253,7 +261,7 @@ def pose1D_generator(pose_scale=3, min_dist=0.5):
     return round(random.random() * pose_scale + min_dist, 1)
 
 
-def route_generator(parent: str = "root", name: str = None):
+def route_generator(parent: str = "root", name: str = None, waypoints_size: int = None):
     """ Generate route dict
 
     Args:
@@ -263,7 +271,8 @@ def route_generator(parent: str = "root", name: str = None):
     Returns:
         Dict: route mission node
     """
-    waypoints_size = random.randint(1, 4)
+    if waypoints_size is None:
+        waypoints_size = random.randint(1, 4)
     waypoints = {"waypoints": [{"x": pose1D_generator(), "y": pose1D_generator(), "theta": 0}
                                for _ in range(waypoints_size)]}
     route_dict = {"route": waypoints, "parent": parent}

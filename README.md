@@ -60,8 +60,11 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
   - [Updates](#updates)
   - [License](#license)
 
-## Latest Update
+## Latest Updates
+Update 2024-12   : Added support for Isaac Manipulator, VDA5050 factsheet request compatibility, and bug fixes. Moved 
+
 Update 2023-10   : Addition of battery status, update/cancel missions, nodePosition, bug fixes.
+
 Update 2022-10-19: Initial release
 
 ## Supported Platforms
@@ -150,10 +153,10 @@ An interactive documentation page that can be used to submit missions will be la
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.0.0
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.2.0
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.0.0 --help
+    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.2.0 --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -161,7 +164,7 @@ An interactive documentation page that can be used to submit missions will be la
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:3.0.0
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:3.2.0
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -199,49 +202,29 @@ docker compose -f mission_dispatch_services.yaml up
 
     ```
     cd mission_dispatch
-    helm install mission-dispatch charts --set hostDomainName=<your_host_doamin_name>
+    helm install mission-dispatch charts --set hostDomainName=<your_host_domain_name>
     ```
 
 3. Test with Mission Simulator:
 
     ```
-    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:3.0.0 --robots carter_x,4,5 \
-        --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
+    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:3.2.0 --robots carter_x,4,5 \
+        --mqtt_host <your_host_domain_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
 ## Getting Started with Local Development
 Continue here to develop Mission Dispatch services locally. Skip to the [Run Mission Dispatch](#run-mission-dispatch) section to try our provided services.
-
-### Build the Container Locally
-
-All building and running of applications through bazel
-should be done within this container to ensure that the correct dependencies are present. 
-
-```
-cd mission_dispatch
-docker build --network host -t isaac-mission-dispatch "${PWD}/docker"
-```
 
 ### Launch Mission Dispatch Services Locally
 1. Launch Dependencies by following steps in the [Deploy with Official Docker Containers](#deploy-with-official-docker-containers) section.
 2. Launch the developer Docker container.
 
     ```
-    docker run -it --rm \
-        --network host \
-        --workdir "$PWD" \
-        -e USER="$(id -u)" \
-        -v "$PWD:$PWD" \
-        -v /etc/passwd:/etc/passwd:ro \
-        -v /etc/group:/etc/group:ro \
-        -v "$HOME/.docker:$HOME/.docker:ro" \
-        -v "/etc/timezone:/etc/timezone:ro" \
-        -v "$HOME/.cache/bazel:$HOME/.cache/bazel" \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        -u $(id -u) \
-        --group-add $(getent group docker | cut -d: -f3) \
-        isaac-mission-dispatch /bin/bash
+    ./scripts/run_dev.sh
     ```
+    All building and running of applications through bazel
+should be done within this container to ensure that the correct dependencies are present.
+
     You may run this command in as many terminals as you want to get more terminals in the same developer
 environment. A new docker container will be launched for each instance, but they will share the same Bazel cache and source code.
 
@@ -329,7 +312,7 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:3.0.0 --robots \
+docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:3.2.0 --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
@@ -392,6 +375,7 @@ Use the `GET /robot` endpoint to query the status of the robots once they are cr
 |    state          |    Returns robots that are in the given state             | `IDLE`, `ON_TASK`, or `MAP_DEPLOYMENT` |
 |    online         |    If `true`, returns robots that are online (connected) <br> if `false`, returns robots that are not online (not connected)   | `true` or `false` |
 |    names          |    Returns robots where the robot `name` matches a name in the given list   | `array[string]` |
+|    robot_type     |    Returns robots that are of the given type   | `ARM` or `AMR` |
 </details>
 
 The video below shows the step-by-step process of how to create and query a robot.
@@ -690,6 +674,9 @@ If the user intends to integrate teleoperation within a specific mission node, t
 ### Send Telemetry
 Currently, Mission Dispatch collects data on robot status durations and records the outcomes of missions, such as COMPLETED or FAILED. We provide a `TelemetrySender` dummy class for transmitting telemetry data. Users can replace this class with their custom telemetry client provider. This allows for the submission of personalized telemetry to your systems, which can then be viewed in tools like Grafana and similar platforms.
 
+### Retrieving Robot Factsheet
+As per the VDA5050 protocol, Mission Dispatch fetches a robot's factsheet upon creation. In Mission Dispatch, the only fields that are stored are "agv_class" and "speed_max," which allow users to determine robot type (e.g. "arm" or "amr"). This functionality can be disabled by adding "--disable_request_factsheet" when running Mission Dispatch through CLI.
+
 ## Additional Resources
 ### Isaac ROS Mission Client
 A [ROS mission client package](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client) that allows the mission dispatch to communicate with robots through the MQTT protocol. Visit this resource for more video tutorials on using Mission Dispatch with Isaac ROS Mission Client, as well as for [NVIDIA Isaac Sim](https://developer.nvidia.com/isaac-sim) running on local and cloud.
@@ -707,6 +694,7 @@ Check [here](https://nvidia-isaac-ros.github.io/troubleshooting/index.html) for 
 | 2023-04-04 | Isaac ROS DP3   |
 | 2023-10-17 | Isaac ROS 2.0.0 |
 | 2024-05-30 | Isaac ROS 3.0.0 |
+| 2024-12-10 | Isaac ROS 3.2.0 |
 
 ## Frequently Asked Questions
 * How is the issue of mission persistence exactly addressed?

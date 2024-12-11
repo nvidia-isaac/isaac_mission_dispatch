@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -175,6 +175,20 @@ py_test(
     name = "update_mission",
     srcs = [
         "update_mission.py"
+    ],
+    deps = [
+        ":test_context",
+    ],
+    tags = [
+        "exclusive"
+    ],
+    size = "large"
+)
+
+py_test(
+    name = "retrieve_factsheet",
+    srcs = [
+        "retrieve_factsheet.py"
     ],
     deps = [
         ":test_context",

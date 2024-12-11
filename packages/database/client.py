@@ -21,23 +21,29 @@ import json
 from typing import Any, List, Optional, Dict
 import uuid
 import requests
+import logging
 
 from cloud_common import objects
 from cloud_common.objects.mission import MissionObjectV1, MissionRouteNodeV1
+from cloud_common.objects.detection_results import DetectionResultsObjectV1
+from cloud_common.objects.robot import RobotObjectV1
 from cloud_common.objects import common
 
 
 class DatabaseClient:
     """A connection to the centralized database where all api objects are stored"""
+
     def __init__(self, url: str = "http://localhost:5000"):
         self._url = url
         self._publisher_id = str(uuid.uuid4())
+        self._logger = logging.getLogger("Isaac Mission Dispatch")
 
     def create(self, obj: objects.ApiObject):
         url = f"{self._url}/{obj.get_alias()}"
         fields = json.loads(obj.spec.json())
         fields["name"] = obj.name
-        response = requests.post(url, json=fields, params={"publisher_id": self._publisher_id})
+        response = requests.post(url, json=fields, params={
+                                 "publisher_id": self._publisher_id})
         common.handle_response(response)
 
     def update_spec(self, obj: objects.ApiObject):
@@ -66,7 +72,8 @@ class DatabaseClient:
 
     def watch(self, object_type: Any):
         url = f"{self._url}/{object_type.get_alias()}/watch"
-        response = requests.get(url, stream=True, params={"publisher_id": self._publisher_id})
+        response = requests.get(url, stream=True, params={
+                                "publisher_id": self._publisher_id})
         for i in response.iter_lines():
             yield object_type(**json.loads(i))
 
@@ -74,6 +81,17 @@ class DatabaseClient:
         url = f"{self._url}/{object_type.get_alias()}/{name}"
         response = requests.delete(url)
         common.handle_response(response)
+        if object_type == RobotObjectV1:
+            try:
+                self.get(DetectionResultsObjectV1, name)
+                self._logger.info(
+                    "Deleting corresponding detection results object.")
+                url = f"{self._url}/detection_results/{name}"
+                response = requests.delete(url)
+                common.handle_response(response)
+            except objects.common.ICSUsageError as e:
+                self._logger.info(
+                    "Caught error (deleting non-existent database object): %s", e)
 
     def cancel_mission(self, name: str):
         url = f"{self._url}/{MissionObjectV1.get_alias()}/{name}/cancel"

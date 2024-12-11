@@ -38,9 +38,9 @@ encoding and will keep streaming until the client closes the connection. Every t
 {object_type} object is created or modified, this will stream the object. Use this API to watch \
 for changes to objects."
 CREATE_DESCRIPTION = "Creates a new object of type {object_type}. If a name or prefix is not " \
-"provided, a random uuid will be assigned."
+    "provided, a random uuid will be assigned."
 UPDATE_DESCRIPTION = "Updates the object of the given {object_type}. \"lifecycle\", \"name\" " \
-"and \"status\" cannot be updated."
+    "and \"status\" cannot be updated."
 DELETE_DESCRIPTION = "Request to delete an object of type {object_type} when given the object's \
 name. The server will delete the object when there are no pending processes."
 
@@ -50,6 +50,7 @@ API_VERSION = "1.0.0"
 
 class Watcher(abc.ABC):
     """ An object that allows watching for updates to objects of a given type in a database """
+
     def __enter__(self):
         return self
 
@@ -68,6 +69,7 @@ class Watcher(abc.ABC):
 
 class Database(abc.ABC):
     """ Represents a database that can store api objects """
+
     async def async_init(self):
         pass
 
@@ -107,6 +109,7 @@ class Database(abc.ABC):
 
 class WebServer:
     """ A webserver that hosts REST APIs for accessing a database of api objects """
+
     def __init__(self, database: Database, args: argparse.Namespace):
         self._database = database
         self._address = args.address
@@ -124,7 +127,7 @@ class WebServer:
         parser.add_argument("--controller_port", type=int, default=5001,
                             help="The port to host the private, controller API on")
         parser.add_argument("--root_path", type=str, default="",
-                            help="If mission dispatch is hosted behind a reverse proxy " \
+                            help="If mission dispatch is hosted behind a reverse proxy "
                                  "set this to the url it is routed to")
 
     def _get_create_class(self, object_class: objects.ApiObjectType):
@@ -132,13 +135,13 @@ class WebServer:
             """Defines parameters used to create a new object"""
             name: Optional[str] = pydantic.Field(
                 None,
-                description="The unique name to give the object. If no name is given and the " \
-                            "\"prefix\" field is not provided, a random id will be generated and " \
+                description="The unique name to give the object. If no name is given and the "
+                            "\"prefix\" field is not provided, a random id will be generated and "
                             "used as the name")
             prefix: Optional[str] = pydantic.Field(
                 None,
-                description="May be used instead of the \"name\" field. If this is given, the " \
-                            "object will be given a name of the form " \
+                description="May be used instead of the \"name\" field. If this is given, the "
+                            "object will be given a name of the form "
                             "<prefix>-<random id> to ensure uniqueness.")
 
             class Config:
@@ -148,7 +151,8 @@ class WebServer:
                 super().__init__(*args, **kwargs)
 
                 if self.name is not None and self.prefix is not None:
-                    raise common.ICSUsageError("Cannot have both \"name\" and \"prefix\"")
+                    raise common.ICSUsageError(
+                        "Cannot have both \"name\" and \"prefix\"")
 
                 # If a prefix is provided, use that to generate the name
                 if self.prefix is not None:
@@ -163,21 +167,19 @@ class WebServer:
             class Config:
                 extra = "forbid"
 
-            @pydantic.root_validator(pre=True)
+            @pydantic.root_validator(pre=True, skip_on_failure=True)
             def check_for_status(cls, values):
                 if "status" in values:
                     raise common.ICSUsageError(
-                        "Attempted to update \"status\" with the external API " \
-                        "hosted on --port. This can only be done from the internal " \
+                        "Attempted to update \"status\" with the external API "
+                        "hosted on --port. This can only be done from the internal "
                         "API hosted on --controller_port.")
                 return values
-
 
             def update_object(self, obj):
                 new_fields = self.dict()
                 for key, value in new_fields.items():
                     setattr(obj, key, value)
-
 
         Update.__name__ = object_class.__name__ + "Update"
         return Update
@@ -188,27 +190,27 @@ class WebServer:
             class Config:
                 extra = "forbid"
 
-            @pydantic.root_validator(pre=True, allow_reuse=True)
+            @pydantic.root_validator(pre=True, allow_reuse=True, skip_on_failure=True)
             def check_for_spec(cls, values):
                 spec_keys = [key for key in values if key != "status"]
                 if spec_keys:
                     raise common.ICSUsageError(
-                        f"Attempted to update non \"status\" keys {spec_keys} with " \
-                        "the internal API hosted on --controller_port. This can " \
+                        f"Attempted to update non \"status\" keys {spec_keys} with "
+                        "the internal API hosted on --controller_port. This can "
                         "only be done from the external API hosted on --port.")
                 return values
 
             status: object_class.get_status_class()  # type: ignore
+
             def update_object(self, obj):
                 obj.status = self.status
 
         Update.__name__ = object_class.__name__ + "Update"
         return Update
 
-
     def _build_lister(self, object_class: objects.ApiObjectType):
         async def func(query_params:                                       # type: ignore
-                       object_class.get_query_params()=fastapi.Depends()): # type: ignore
+                       object_class.get_query_params() = fastapi.Depends()):  # type: ignore
             return await self._database.list_objects(object_class, query_params)
         return func
 
@@ -267,6 +269,7 @@ class WebServer:
             await self._database.set_lifecycle(object_class, name,
                                                objects.ObjectLifecycleV1.PENDING_DELETE,
                                                publisher_id)
+            return {"detail": f"{name} is PENDING_DELETE"}
         return func
 
     def _build_hard_deletor(self, object_class: objects.ApiObjectType):
@@ -277,6 +280,7 @@ class WebServer:
             await self._database.set_lifecycle(object_class, name,
                                                objects.ObjectLifecycleV1.DELETED,
                                                publisher_id)
+            return {"detail": f"{name} is DELETED"}
         return func
 
     def _build_method(self, object_class: objects.ApiObjectType, method: objects.ApiObjectMethod):
@@ -291,7 +295,8 @@ class WebServer:
                 return ret
             return func
         else:
-            async def func(name: str, publisher_id: Optional[uuid.UUID] = None):  # type: ignore
+            async def func(name: str,  # type: ignore # nopep8
+                           publisher_id: Optional[uuid.UUID] = None):
                 # Lookup the related object
                 if publisher_id is None:
                     publisher_id = uuid.uuid4()
@@ -314,44 +319,58 @@ class WebServer:
     def _register_common_apis(self, app: fastapi.FastAPI):
         for class_name, obj in objects.OBJECT_DICT.items():
             app.add_api_route(f"/{class_name}", self._build_lister(obj),
-                              description=LIST_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=List[obj], tags=[class_name])  # type: ignore
+                              description=LIST_DESCRIPTION.format(
+                object_type=obj.__name__),
+                response_model=List[obj], tags=[class_name])  # type: ignore
             app.add_api_route(f"/{class_name}/watch", self._build_watcher(obj),
-                              description=WATCH_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=obj, tags=[class_name], include_in_schema=False)
+                              description=WATCH_DESCRIPTION.format(
+                object_type=obj.__name__),
+                response_model=obj, tags=[class_name], include_in_schema=False)
             app.add_api_route(f"/{class_name}/{{name}}", self._build_getter(obj),
-                              description=GET_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=obj, tags=[class_name])  # type: ignore
-            app.add_api_route(f"/{class_name}", self._build_creator(obj),
-                              description=CREATE_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=obj, methods=["POST"], tags=[class_name])
+                              description=GET_DESCRIPTION.format(
+                object_type=obj.__name__),
+                response_model=obj, tags=[class_name])  # type: ignore
         app.add_api_route("/health", self._health_check(), methods=["GET"])
         app.add_api_route("/behaviors", self._behaviors(), methods=["GET"])
 
     def _register_controller_apis(self, app: fastapi.FastAPI):
         for class_name, obj in objects.OBJECT_DICT.items():
             app.add_api_route(f"/{class_name}/{{name}}", self._build_status_updator(obj),
-                              description=UPDATE_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=None, methods=["PUT"], tags=[class_name],
-                              include_in_schema=False)
+                              description=UPDATE_DESCRIPTION.format(
+                                  object_type=obj.__name__),
+                              response_model=None, methods=["PUT"], tags=[class_name])
             app.add_api_route(f"/{class_name}/{{name}}", self._build_hard_deletor(obj),
-                              description=DELETE_DESCRIPTION.format(object_type=obj.__name__),
+                              description=DELETE_DESCRIPTION.format(
+                                  object_type=obj.__name__),
                               response_model=None, methods=["DELETE"], tags=[class_name])
+            app.add_api_route(f"/{class_name}", self._build_creator(obj),
+                              description=CREATE_DESCRIPTION.format(
+                object_type=obj.__name__),
+                response_model=obj, methods=["POST"], tags=[class_name])
 
     def _register_user_apis(self, app: fastapi.FastAPI):
-        for class_name, obj in objects.OBJECT_DICT.items():
+        for class_name, obj in objects.USER_API_OBJECT_DICT.items():
             if obj.supports_spec_update():
                 app.add_api_route(f"/{class_name}/{{name}}", self._build_spec_updator(obj),
-                                  description=UPDATE_DESCRIPTION.format(object_type=obj.__name__),
-                                  response_model=None, methods=["PUT"], tags=[class_name])
+                                  description=UPDATE_DESCRIPTION.format(
+                    object_type=obj.__name__),
+                    response_model=None, methods=["PUT"], tags=[class_name],
+                    include_in_schema=False)
             app.add_api_route(f"/{class_name}/{{name}}", self._build_deletor(obj),
-                              description=DELETE_DESCRIPTION.format(object_type=obj.__name__),
-                              response_model=None, methods=["DELETE"], tags=[class_name])
+                              description=DELETE_DESCRIPTION.format(
+                object_type=obj.__name__),
+                response_model=None, methods=["DELETE"], tags=[class_name])
+            app.add_api_route(f"/{class_name}", self._build_creator(obj),
+                              description=CREATE_DESCRIPTION.format(
+                object_type=obj.__name__),
+                response_model=obj, methods=["POST"], tags=[class_name])
 
             for method in obj.get_methods():
                 app.add_api_route(f"/{class_name}/{{name}}/{method.name}",
-                                  self._build_method(obj, method), description=method.description,
-                                  response_model=method.returns, methods=["POST"],
+                                  self._build_method(obj, method),
+                                  description=method.description,
+                                  response_model=method.returns, methods=[
+                                      "POST"],
                                   tags=[class_name])
 
     async def _run_servers(self, public_app, private_app):
@@ -381,8 +400,10 @@ class WebServer:
         async def user_error_handler(  # pylint: disable=unused-variable
                 request: fastapi.Request, error: common.ICSError):
             """ Returns user readable error responses. """
-            err_msg = {"message": str(error), "error_code": type(error).error_code}
+            err_msg = {"message": str(
+                error), "error_code": type(error).error_code}
             return fastapi.responses.JSONResponse(status_code=400, content=err_msg)
         # Run the server
         event_loop = asyncio.get_event_loop()
-        event_loop.run_until_complete(self._run_servers(public_app, private_app))
+        event_loop.run_until_complete(
+            self._run_servers(public_app, private_app))

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Install python and dependencies
-FROM nvcr.io/nvidia/base/ubuntu:20.04_x64_2022-09-23
+FROM nvcr.io/nvidia/base/ubuntu:22.04_20240212
+ARG DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install python3 python3-pip -y
 RUN ln -s /usr/bin/python3 /usr/bin/python
+RUN apt-get update && apt-get install libgl1-mesa-glx ffmpeg libsm6 libxext6 python3-tk -y
 RUN apt-get clean

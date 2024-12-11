@@ -28,7 +28,7 @@ import requests  # type: ignore
 import socket
 import time
 import threading
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 from collections import OrderedDict
 
 import paho.mqtt.client as mqtt_client
@@ -41,6 +41,7 @@ from packages.utils import metrics
 import cloud_common.objects as api_objects
 import cloud_common.objects.mission as mission_object
 import cloud_common.objects.robot as robot_object
+from cloud_common.objects.detection_results import DetectedObject
 
 import importlib
 
@@ -60,12 +61,25 @@ DATABASE_RECONNECT_PERIOD = 0.5
 
 RobotMessage = Union[api_objects.RobotObjectV1,
                      api_objects.MissionObjectV1,
-                     types.VDA5050OrderInformation]
+                     types.VDA5050State,
+                     types.VDA5050Factsheet]
 
 
-class StatusMessage(pydantic.BaseModel):
+class ClientMessage(pydantic.BaseModel):
     name: str
-    payload: types.VDA5050OrderInformation
+    # TODO: perhaps do OOP to handle typing of payload too;
+    # currently default is any
+    payload: Any
+
+
+class ClientStatusMessage(ClientMessage):
+    name: str
+    payload: types.VDA5050State
+
+
+class ClientFactsheetMessage(ClientMessage):
+    name: str
+    payload: types.VDA5050Factsheet
 
 
 class Robot:
@@ -79,6 +93,16 @@ class Robot:
         self._messages: asyncio.Queue[RobotMessage] = asyncio.Queue()
         self._database = db
         self._robot_object: Optional[api_objects.RobotObjectV1] = None
+        self._detection_results_object: Optional[api_objects.DetectionResultsObjectV1] = None
+        # Try to get existing detected objects.
+        try:
+            self._detection_results_object = cast(
+                api_objects.DetectionResultsObjectV1,
+                self._database.get(
+                    api_objects.DetectionResultsObjectV1, self._name)
+            )
+        except api_objects.common.ICSError:
+            pass
         self._missions: OrderedDict[str,
                                     api_objects.MissionObjectV1] = OrderedDict()
         self._current_mission: Optional[api_objects.MissionObjectV1] = None
@@ -92,6 +116,8 @@ class Robot:
         self._current_behavior_tree: Optional[behavior_tree.MissionBehaviorTree] = None
         self._updating_mission_from_api: bool = False
         self._charging_mission_received: bool = False
+        self.last_node_seq_id: int = -1
+
         if self._robot_server.push_telemetry:
             self._telemetry = metrics.Telemetry()
             self._telemetry_client = TelemetrySender(
@@ -196,7 +222,8 @@ class Robot:
         cancel_current_node = False
         # From POST /mission/{name}/cancel endpoint
         if mission.needs_canceled != message.needs_canceled:
-            self.info(f"Cancel a {mission.status.state} mission [{message.name}]")
+            self.info(
+                f"Cancel a {mission.status.state} mission [{message.name}]")
             mission.needs_canceled = message.needs_canceled
             return cancel_current_node
 
@@ -267,16 +294,29 @@ class Robot:
             # Create robot object
             self.info("Created robot")
             self._robot_object = message
+
             self._header_id = 0
             self._robot_online_task = \
                 asyncio.get_event_loop().create_task(self._check_robot_online())
+
+            if not self._robot_server.disable_request_factsheet:
+                action_id = f"instantaction-n{self._header_id}"
+                factsheet_action_type = types.VDA5050InstantActionType.FACTSHEET_REQUEST
+                instant_action = types.VDA5050Action(
+                    actionType=factsheet_action_type, actionId=action_id)
+                self.info(
+                    f"FACTSHEET INFO: Sending {factsheet_action_type.value} action.")
+                await self._send_instant_action(instant_action)
+                self._current_instant_actions[action_id] = instant_action
+
             await self._try_start_mission()
         else:
             # Delete robot update
             if message.lifecycle == api_objects.object.ObjectLifecycleV1.PENDING_DELETE:
                 if message.status.state == api_objects.robot.RobotStateV1.ON_TASK:
                     # Set mission to failure
-                    self._set_mission_state(mission_object.MissionStateV1.FAILED)
+                    self._set_mission_state(
+                        mission_object.MissionStateV1.FAILED)
                 # Set the state of the robot to DELETE for RobotServer to delete
                 # on the server and database side.
                 self.debug(
@@ -314,7 +354,7 @@ class Robot:
         except asyncio.CancelledError:
             self.debug("Cancelled robot online check.")
 
-    async def handle_instant_action(self, message: types.VDA5050OrderInformation):
+    async def handle_instant_action(self, message: types.VDA5050State):
         # Handle instant actions
         updated_instant_action_ids = []
         finished_instant_actions = []
@@ -341,7 +381,7 @@ class Robot:
                     f"Resend {instant_action.actionType} instant action.")
         return finished_instant_actions
 
-    async def _on_client_message(self, message: types.VDA5050OrderInformation):
+    async def _on_client_message(self, message: types.VDA5050State):
         self.debug(f"[{message.orderId}] Got feedback")
         # If we have a robot, Update it with the details from the message
         if self._robot_object is not None:
@@ -351,10 +391,11 @@ class Robot:
                 self._robot_online_task.cancel()
             self._robot_online_task = \
                 asyncio.get_event_loop().create_task(self._check_robot_online())
-            self._robot_object.status.pose.x = message.agvPosition.x
-            self._robot_object.status.pose.y = message.agvPosition.y
-            self._robot_object.status.pose.theta = message.agvPosition.theta
-            self._robot_object.status.pose.map_id = message.agvPosition.mapId
+            if message.agvPosition:
+                self._robot_object.status.pose.x = message.agvPosition.x
+                self._robot_object.status.pose.y = message.agvPosition.y
+                self._robot_object.status.pose.theta = message.agvPosition.theta
+                self._robot_object.status.pose.map_id = message.agvPosition.mapId
             if message.batteryState:
                 self._robot_object.status.battery_level = message.batteryState.batteryCharge
                 if message.batteryState.charging and not self._robot_object.status.state.running:
@@ -420,7 +461,7 @@ class Robot:
             if not self._robot_object.status.online:
                 self.info("Robot Online")
             self._robot_object.status.online = True
-            if len(message.information) > 0:
+            if message.information and len(message.information) > 0:
                 for information in message.information:
                     if information.infoType == "user_info":
                         self._robot_object.status.info_messages = \
@@ -432,6 +473,24 @@ class Robot:
                                                     serial_number=message.serialNumber)
             if self._robot_object.lifecycle is not api_objects.object.ObjectLifecycleV1.DELETED:
                 self._database.update_status(self._robot_object)
+
+            # Update object detection results if necessary
+            for action_state in message.actionStates:
+                if (action_state.actionStatus == types.VDA5050ActionStatus.FINISHED and
+                        action_state.actionType == types.NVActionType.GET_OBJECTS and
+                        self.robot_object is not None):
+                    if self._detection_results_object is None:
+                        self._detection_results_object = api_objects.DetectionResultsObjectV1(
+                            name=self.robot_object.name)
+                        self._database.create(self._detection_results_object)
+                    self._detection_results_object.status.detected_objects = \
+                        [DetectedObject(**item) for item in json.loads(
+                            action_state.resultDescription)]
+
+                    self._database.update_status(
+                        self._detection_results_object)
+                    self.info(
+                        "Updated object detector information in mission database.")
 
         finished_instant_actions = await self.handle_instant_action(message)
         self.update_robot_state(finished_instant_actions)
@@ -471,6 +530,13 @@ class Robot:
 
         if self._current_mission.status.state.done:
             await self.post_mission_completion()
+
+    async def _on_client_factsheet(self, message: types.VDA5050Factsheet):
+        if self._robot_object is not None:
+            self._robot_object.status.factsheet.agv_class = message.typeSpecification.agvClass
+            self._robot_object.status.factsheet.speed_max = message.physicalParameters.speedMax
+
+            self._database.update_status(self._robot_object)
 
     async def post_mission_completion(self):
         # Delete a completed/failure mission
@@ -517,7 +583,7 @@ class Robot:
                 self._robot_online_task.cancel()
             await self._robot_server.delete_robot(self._name)
 
-    def update_mission_node_state(self, message: types.VDA5050OrderInformation,
+    def update_mission_node_state(self, message: types.VDA5050State,
                                   finished_instant_actions: List[types.VDA5050Action])\
             -> mission_object.MissionStateV1:
         # Update mission state from robot client
@@ -525,6 +591,7 @@ class Robot:
             return mission_object.MissionStateV1.PENDING
         mission_node_index = int(message.orderId.rsplit("-n", 1)[1])
         current_mission_node = self._current_mission.mission_tree[mission_node_index]
+        task_status = self._current_mission.status.task_status
         # If the last visited node is empty, this is the first order the robot has ran
         if message.lastNodeId == "":
             current_order_node_id = 0
@@ -535,10 +602,32 @@ class Robot:
             current_mission_node.name)].state
         if current_mission_node.type == mission_object.MissionNodeType.ROUTE and \
                 current_mission_node.route is not None:
+            # Find the index of the waypoint that the robot last reached
+            # - Nodes are separated by 2 sequenceId, hence we divide by 2
+            # - We also pad by an additional node in the beginning that is not in our
+            #   waypoints, so we subtract 1
+            # - This means that (lastNodeSequenceId = 2) -> (idx = 0)
+            idx = message.lastNodeSequenceId // 2 - 1
+
+            # For route nodes, task index corresponds to the last user-defined node reached
+            # We assume that user-defined nodes will allowedDeviationXY = 0
+            # Because we pad by an additional node in the beginning, we want to ignore
+            # that node, so we enforce that idx >= 0.
+            if self.last_node_seq_id < message.lastNodeSequenceId and \
+                    idx >= 0 and \
+                    current_mission_node.route.waypoints[idx].allowedDeviationXY == 0:
+                if current_mission_node.name not in task_status:
+                    task_status[str(current_mission_node.name)] = 0
+                else:
+                    task_status[str(current_mission_node.name)] += 1
+                self._database.update_status(self._current_mission)
+
             if current_order_node_id == current_mission_node.route.size * 2 + 2:
                 node_state = mission_object.MissionStateV1.COMPLETED
+
         elif current_mission_node.type == mission_object.MissionNodeType.MOVE and \
-                current_mission_node.move is not None and current_order_node_id == 1 * 2 + 2:
+                current_mission_node.move is not None and \
+                current_order_node_id == 1 * 2 + 2:
             node_state = mission_object.MissionStateV1.COMPLETED
         # TODO(Nico): fix the action states index
         elif current_mission_node.type == mission_object.MissionNodeType.ACTION:
@@ -558,6 +647,9 @@ class Robot:
                 node_state = mission_object.MissionStateV1.CANCELED
                 break
 
+        # Save last node sequence id
+        self.last_node_seq_id = message.lastNodeSequenceId
+
         if self.get_mission_errors(message):
             self.warning("Fatal Errors present, failing mission")
             node_state = mission_object.MissionStateV1.FAILED
@@ -565,7 +657,7 @@ class Robot:
         self.set_mission_node_state(str(current_mission_node.name), node_state)
         return node_state
 
-    def get_mission_errors(self, message: types.VDA5050OrderInformation):
+    def get_mission_errors(self, message: types.VDA5050State):
         fatal_errors = False
         if len(message.errors) == 0:
             return False
@@ -629,7 +721,7 @@ class Robot:
                 self.mission_info("Stop teleop")
             return
 
-    def update_mission_state(self, message: types.VDA5050OrderInformation,
+    def update_mission_state(self, message: types.VDA5050State,
                              finished_instant_actions: List):
         # Update mission state from both robot feedback and behavior tree
         # Do nothing if there is no mission
@@ -656,8 +748,10 @@ class Robot:
                 await self._on_robot_change(message)
             elif isinstance(message, api_objects.MissionObjectV1):
                 await self._on_mission_change(message)
-            elif isinstance(message, types.VDA5050OrderInformation):
+            elif isinstance(message, types.VDA5050State):
                 await self._on_client_message(message)
+            elif isinstance(message, types.VDA5050Factsheet):
+                await self._on_client_factsheet(message)
 
     async def send_message(self, message):
         await self._messages.put(message)
@@ -749,7 +843,7 @@ class Robot:
                 self._current_mission.status.end_timestamp is not None:
             self.mission_info("Mission duration: "
                               f"""{self._current_mission.status.end_timestamp -
-                               self._current_mission.status.start_timestamp}""")
+                                   self._current_mission.status.start_timestamp}""")
         self._database.update_status(self._current_mission)
         return True
 
@@ -801,9 +895,11 @@ class RobotServer:
     def __init__(self, mqtt_host: str = "localhost", mqtt_port: int = 1883,
                  mqtt_transport: str = "tcp", mqtt_ws_path: Optional[str] = None,
                  mqtt_prefix: str = "uagv/v2/RobotCompany",
+                 mqtt_username: Optional[str] = None,
+                 mqtt_password: Optional[str] = None,
                  database_url: str = "http://localhost:5000",
                  mission_ctrl_url: Optional[str] = None, push_telemetry: bool = False,
-                 telemetry_env: str = "DEV"):
+                 telemetry_env: str = "DEV", disable_request_factsheet: bool = False):
         """Initializes a RobotServer object by starting threads for mqtt and for the robot/mission
         database watchers
         Args:
@@ -826,7 +922,7 @@ class RobotServer:
         )
         self._robot_changes: asyncio.Queue[api_objects.RobotObjectV1] = asyncio.Queue(
         )
-        self._mqtt_messages: asyncio.Queue[StatusMessage] = asyncio.Queue()
+        self._mqtt_messages: asyncio.Queue[ClientMessage] = asyncio.Queue()
 
         # Launch threads to listen for updates to robot / mission objects
         mission_update_args = (
@@ -842,7 +938,8 @@ class RobotServer:
         # Connect to MQTT
         self._mqtt_client = \
             self._connect_to_mqtt(mqtt_host, mqtt_port,
-                                  mqtt_transport, mqtt_ws_path)
+                                  mqtt_transport, mqtt_ws_path,
+                                  mqtt_username, mqtt_password)
 
         # The robot objects
         self._robots: Dict[str, Robot] = {}
@@ -850,6 +947,7 @@ class RobotServer:
         # Mission control
         self.mission_ctrl_url = mission_ctrl_url
         self.push_telemetry = push_telemetry
+        self.disable_request_factsheet = disable_request_factsheet
         self.telemetry_env = telemetry_env
 
     def _enqueue(self, queue, obj):
@@ -857,22 +955,37 @@ class RobotServer:
 
     def _mqtt_on_connect(self, client, userdata, flags, rc):
         client.subscribe(f"{self._mqtt_prefix}/+/state")
+        client.subscribe(f"{self._mqtt_prefix}/+/factsheet")
 
     def _mqtt_on_message(self, client, userdata, msg):
-        match = re.match(f"{self._mqtt_prefix}/(.*)/state", msg.topic)
-        if match is None:
-            self.warning(
-                f"Got message from unrecognized topic \"{msg.topic}\"")
-            return
-        robot = match.groups()[0]
-        self._enqueue(self._mqtt_messages, StatusMessage(name=robot,
-                                                         payload=json.loads(msg.payload)))
+        state_match = re.match(f"{self._mqtt_prefix}/(.*)/state", msg.topic)
+        factsheet_match = re.match(
+            f"{self._mqtt_prefix}/(.*)/factsheet", msg.topic)
+        try:
+            if state_match:
+                robot = state_match.groups()[0]
+                pl = msg.payload
+                self._enqueue(self._mqtt_messages, ClientStatusMessage(name=robot,
+                                                                       payload=json.loads(pl)))
+            elif factsheet_match:
+                robot = factsheet_match.groups()[0]
+                pl = msg.payload
+                self._enqueue(self._mqtt_messages, ClientFactsheetMessage(name=robot,
+                                                                          payload=json.loads(pl)))
+            else:
+                self.warning(
+                    f"Got message from unrecognized topic \"{msg.topic}\"")
+                return
+        except pydantic.ValidationError as e:
+            self.warning(f"Validation error from client message:\n{e.errors()}")
 
-    def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str]) -> \
-            mqtt_client.Client:
+    def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str],
+                         username: Optional[str], password: Optional[str]) -> mqtt_client.Client:
         client = mqtt_client.Client(transport=transport)
         if transport == "websockets" and ws_path is not None:
             client.ws_set_options(path=ws_path)
+        if username and password:
+            client.username_pw_set(username=username, password=password)
         client.on_connect = self._mqtt_on_connect
         client.on_message = self._mqtt_on_message
         connected = False

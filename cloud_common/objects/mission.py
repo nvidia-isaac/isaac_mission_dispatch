@@ -305,6 +305,8 @@ class MissionStatusV1(pydantic.BaseModel):
                         means the robot is working on the first node")
     node_status: Dict[str, MissionNodeStatusV1] = pydantic.Field(
         {}, description="The state and optional failure/success message of all tree nodes.")
+    task_status: Dict[str, int] = pydantic.Field(
+        {}, description="Tracks the current task index of a node")
     start_timestamp: Optional[datetime.datetime] = pydantic.Field(
         None, description="The timestamp of when this mission is started.")
     end_timestamp: Optional[datetime.datetime] = pydantic.Field(
@@ -325,6 +327,7 @@ class MissionQueryParamsV1(pydantic.BaseModel):
     state: Optional[MissionStateV1]
     started_after: Optional[datetime.datetime]
     started_before: Optional[datetime.datetime]
+    robot: Optional[str]
     most_recent: Optional[int]
 
 
@@ -380,9 +383,14 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
 
     async def cancel(self):
         if self.status.state.done:
-            raise common.ICSUsageError(
-                f"Completed mission {self.name} can't be canceled.")
+            if self.status.state is MissionStateV1.CANCELED:
+                raise common.ICSUsageError(
+                    f"Mission {self.name} is already canceled.")
+            else:
+                raise common.ICSUsageError(
+                    f"Completed mission {self.name} can't be canceled.")
         self.needs_canceled = True
+        return {"detail": f"Mission {self.name} will be canceled."}
 
     async def update(self, update_nodes: Dict[str, MissionRouteNodeV1]):
         if self.status.state.done:
@@ -408,5 +416,6 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
             "state": "status->>'state' = '{}'",
             "started_after": "(status->>'start_timestamp') >= '{}'",
             "started_before": "(status->>'start_timestamp') <= '{}'",
+            "robot": "spec->>'robot' = '{}'",
             "most_recent": " ORDER BY (status->>'start_timestamp') DESC LIMIT {}"
         }
