@@ -60,8 +60,9 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
   - [Updates](#updates)
   - [License](#license)
 
-## Latest Updates
-Update 2024-12   : Added support for Isaac Manipulator, VDA5050 factsheet request compatibility, and bug fixes. Moved 
+## Latest Update
+
+Update 2026-03   : Mission Dispatch MCP, VDA5050 2.2 map distribution updates, ARM64 support, bug fixes.
 
 Update 2023-10   : Addition of battery status, update/cancel missions, nodePosition, bug fixes.
 
@@ -114,6 +115,8 @@ git clone --recurse-submodules https://github.com/isaac_amr_platform/mission_dis
 Continue here to run Mission Dispatch microservices directly on a computer, CSP, or EGX. Skip to section [Getting Started with Local Development](#getting-started-with-local-development) to develop services locally on your computer.
 
 An interactive documentation page that can be used to submit missions will be launched after the deployment. If you used the default parameters, this can be found at `http://localhost:5000/docs` or `http://<your_ip_address>:5000/docs`. 
+
+Note : When deploying with Docker containers from nvcr.io on an ARM64 machine, use `-arm64` instead of `-amd64` at the end of the image tag.
 ### Deploy with Official Docker Containers 
 1. Launch Dependencies.
 
@@ -153,10 +156,10 @@ An interactive documentation page that can be used to submit missions will be la
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.2.0
+    docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-database:4.3.0-amd64
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:3.2.0 --help
+    # docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-database:4.3.0 --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -164,7 +167,7 @@ An interactive documentation page that can be used to submit missions will be la
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:3.2.0
+    docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-dispatch:4.3.0-amd64
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -175,6 +178,7 @@ To simplify the steps in the [Deploy with Official Docker Containers](#deploy-wi
 cd mission_dispatch/docker_compose
 docker compose -f mission_dispatch_services.yaml up
 # run `docker compose -f mission_dispatch_services.yaml down` if you want to bring down all the services.
+# run `docker compose -f mission_dispatch_services_arm64.yaml up` if you are on an ARM64 system
 ```
 
 ### Deploy with Kubernetes 
@@ -189,7 +193,7 @@ docker compose -f mission_dispatch_services.yaml up
     ```
     b. Install the chart for the Postgres database and pass in the primary arguments:
     ```
-    helm install postgres-db bitnami/postgresql \
+    helm install postgres-db bitnamilegacy/postgresql \
         --set containerPorts.postgresql=5432 \
         --set auth.postgresPassword=postgres \
         --set auth.database=mission \
@@ -202,14 +206,14 @@ docker compose -f mission_dispatch_services.yaml up
 
     ```
     cd mission_dispatch
-    helm install mission-dispatch charts --set hostDomainName=<your_host_domain_name>
+    helm install mission-dispatch charts --set hostDomainName=<your_host_doamin_name>
     ```
 
 3. Test with Mission Simulator:
 
     ```
-    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:3.2.0 --robots carter_x,4,5 \
-        --mqtt_host <your_host_domain_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
+    docker run -it --network host  nvcr.io/nvstaging/isaac-amr/mission-simulator:4.3.0-amd64 --robots carter_x,4,5 \
+        --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
 ## Getting Started with Local Development
@@ -312,7 +316,7 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:3.2.0 --robots \
+docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-simulator:4.3.0-amd64 --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
@@ -687,14 +691,6 @@ The [vda5050_connector](https://github.com/inorbit-ai/ros_amr_interop/tree/galac
 ### Isaac ROS Troubleshooting
 Check [here](https://nvidia-isaac-ros.github.io/troubleshooting/index.html) for solutions to problems with Isaac ROS.
 
-## Updates
-| Date       | Changes         |
-| ---------- | --------------- |
-| 2022-10-19 | Initial release |
-| 2023-04-04 | Isaac ROS DP3   |
-| 2023-10-17 | Isaac ROS 2.0.0 |
-| 2024-05-30 | Isaac ROS 3.0.0 |
-| 2024-12-10 | Isaac ROS 3.2.0 |
 
 ## Frequently Asked Questions
 * How is the issue of mission persistence exactly addressed?

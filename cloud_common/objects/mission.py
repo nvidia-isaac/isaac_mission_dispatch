@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import datetime
 import enum
 from typing import Any, Dict, List, Optional
 
-import pydantic
+import pydantic.v1 as pydantic
 
 from cloud_common.objects import common, object
 
@@ -365,7 +365,7 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
                     selector nodes in the mission tree structure are necessary, please cancel \
                     the mission and submit it again with the revisions.",
                 function=cls.update,
-                params=Dict[str, MissionRouteNodeV1])
+                params=Dict[str, Any])
         ]
 
     @classmethod
@@ -392,12 +392,20 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
         self.needs_canceled = True
         return {"detail": f"Mission {self.name} will be canceled."}
 
-    async def update(self, update_nodes: Dict[str, MissionRouteNodeV1]):
+    async def update(self, update_nodes: Dict[str, Any]):
+        # Validate with pydantic v1 to avoid FastAPI/Pydantic v2 body validation mismatch
+        try:
+            validated_nodes = {
+                k: MissionRouteNodeV1(**v) if not isinstance(v, MissionRouteNodeV1) else v
+                for k, v in update_nodes.items()
+            }
+        except pydantic.ValidationError as e:
+            raise common.ICSUsageError(f"Invalid node data: {e}") from e
         if self.status.state.done:
             raise common.ICSUsageError(
                 f"Mission {self.name} is finished with status {self.status.state}.")
         current_node_names = [n.name for n in self.mission_tree]
-        for node_name, _ in update_nodes.items():
+        for node_name, _ in validated_nodes.items():
             if node_name not in current_node_names:
                 raise common.ICSUsageError(
                     f"Node {node_name} does not exist in mission {self.name}")
@@ -407,8 +415,8 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
                     f"Mission node {node_name} is finished with status \
                         {self.status.node_status[node_name].state}.")
         # Update when the nodes exist in the mission and the mission is in PENDING or RUNNING state
-        self.update_nodes = update_nodes
-        return update_nodes
+        self.update_nodes = validated_nodes
+        return validated_nodes
 
     @staticmethod
     def get_query_map() -> Dict:

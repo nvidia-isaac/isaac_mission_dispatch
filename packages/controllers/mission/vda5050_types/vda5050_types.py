@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,9 +23,10 @@ import enum
 import math
 from typing import List, Optional
 
-import pydantic
+import pydantic.v1 as pydantic
 
 from cloud_common.objects import mission, robot, common
+from cloud_common.objects.robot import VDA5050AgvClass
 
 
 # Tell pylint to ignore the invalid names. We must use camelCase names because they are specified
@@ -54,11 +55,11 @@ class VDA5050ActionParameter(pydantic.BaseModel):
 
 
 class VDA5050ActionBlockingType(str, enum.Enum):
-    # “NONE” – allows driving and other actions
+    # "NONE" – allows driving and other actions
     NONE = "NONE"
-    # “SOFT” - allows other actions, but not driving
+    # "SOFT" - allows other actions, but not driving
     SOFT = "SOFT"
-    # “HARD” - is the only allowd action at that time
+    # "HARD" - is the only allowd action at that time
     HARD = "HARD"
 
 
@@ -87,6 +88,8 @@ class NVActionType(str, enum.Enum):
     PAUSE_ORDER = "pause_order"
     DOCK_ROBOT = "dock_robot"
     GET_OBJECTS = "get_objects"
+    GET_APRILTAGS = "get_apriltags"
+    PICK_AND_PLACE = "pick_and_place"
 
 
 class VDA5050ActionStatus(str, enum.Enum):
@@ -530,7 +533,7 @@ class VDA5050TypeSpecification(pydantic.BaseModel):
     seriesName: Optional[str]
     seriesDescription: Optional[str]
     agvKinematic: Optional[str]
-    agvClass: str = "CARRIER"
+    agvClass: str = VDA5050AgvClass.CARRIER.value
     maxLoadMass: Optional[float]
     localizationTypes: Optional[List[str]]
     navigationTypes: Optional[List[str]]

@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -46,18 +46,19 @@ class TestCancelMissions(unittest.TestCase):
             mission_1 = test_context.mission_from_waypoint(
                 "test01", waypoints_1[0], waypoints_1[1])
             ctx.db_client.create(mission_1)
-            time.sleep(0.25)
+            time.sleep(1.0)  # Wait for mission_1 to start
 
             # The second mission will be pending as the robot executes the first mission.
             # The test will demonstrate the cancelation of this pending mission.
             mission_2 = test_context.mission_from_waypoint(
                 "test01", waypoints_2[0], waypoints_2[1])
             ctx.db_client.create(mission_2)
+            time.sleep(0.25)
 
             missions = ctx.db_client.list(api_objects.MissionObjectV1)
             self.assertEqual(len(missions), 2)
 
-            # Cancel the mission
+            # Cancel the mission immediately while mission_1 is still running
             ctx.db_client.cancel_mission(mission_2.name)
             # Wait till it's done
             for mission in ctx.db_client.watch(api_objects.MissionObjectV1):
@@ -96,10 +97,14 @@ class TestCancelMissions(unittest.TestCase):
 
             # Delete the mission
             ctx.db_client.delete(api_objects.MissionObjectV1, mission_2.name)
-            time.sleep(10)
 
             # Check that the second mission has been deleted
-            missions = ctx.db_client.list(api_objects.MissionObjectV1)
+            start_time = time.time()
+            while time.time() - start_time < 60:
+                missions = ctx.db_client.list(api_objects.MissionObjectV1)
+                if len(missions) == 1:
+                    break
+                time.sleep(0.50)
             self.assertEqual(len(missions), 1)
 
     def test_cancel_running_mission(self):
@@ -183,9 +188,10 @@ class TestCancelMissions(unittest.TestCase):
             self.assertEqual(
                 len(ctx.db_client.list(api_objects.MissionObjectV1)), 0)
 
+    # Validate mission queue progression after cancellation (timing-sensitive in CI)
     def test_skip_canceled_mission(self):
         """ Test if a mission after a canceled mission gets properly executed """
-        waypoints = [(5, 5), (5, 10), (10, 5)]
+        waypoints = [(5, 5), (1500, 1500), (10, 5)]
         mission_names = ["m1", "m_cancel", "m3"]
         robot = simulator.RobotInit("test01", 0, 0, 0)
         with test_context.TestContext([robot]) as ctx:
@@ -200,9 +206,10 @@ class TestCancelMissions(unittest.TestCase):
                 mission = test_context.mission_from_waypoint(
                     "test01", waypoint[0], waypoint[1], name)
                 ctx.db_client.create(mission)
-                # In case the mission is done before cancel
-                if name == "m_cancel":
-                    ctx.db_client.cancel_mission(name)
+            
+            time.sleep(3.0)
+            # Cancel the second mission
+            ctx.db_client.cancel_mission("m_cancel")
 
             # Cancel the second mission
             completed_mission = 0
@@ -296,6 +303,7 @@ class TestCancelMissions(unittest.TestCase):
             self.assertEqual(
                 len(ctx.db_client.list(api_objects.MissionObjectV1)), 0)
 
+
     def test_cancel_completed_mission(self):
         """ Test if a completed mission can be canceled """
         waypoint_x = 1
@@ -322,7 +330,6 @@ class TestCancelMissions(unittest.TestCase):
             # Cancel the mission
             with self.assertRaises(common.ICSUsageError):
                 ctx.db_client.cancel_mission(test_mission.name)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,24 @@
+{{- if .Values.enableChart -}}
+{{- if .Values.dispatch.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name:  {{ include "mission-dispatch.fullname" . }}-database
+  {{- with .Values.dispatch.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  rules:
+  - host: {{ .Values.dispatch.ingress.hostDomainName }}
+    http:
+      paths:
+      - path: {{ .Values.dispatch.ingress.missionUrl }}(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: mission-dispatch-database
+            port:
+              number: 80
+{{- end }}
+{{- end }}

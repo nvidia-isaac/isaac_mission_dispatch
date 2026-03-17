@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import unittest
 
 import cloud_common.objects as api_objects
 from cloud_common.objects.robot import RobotStateV1
-from cloud_common.objects.robot import RobotTypeV1
+from cloud_common.objects.robot import VDA5050AgvClass
 from cloud_common.objects.mission import MissionStateV1, MissionNodeV1
 from cloud_common.objects.detection_results import DetectedObject, DetectedObjectBoundingBox2D
 from packages.utils import test_utils
@@ -235,7 +235,7 @@ class TestDatabase(unittest.TestCase):
 
             # Even numbered robots are IDLE, odd are ON_TASK
             robot.status.state = RobotStateV1.IDLE if i % 2 == 0 else RobotStateV1.ON_TASK
-            robot.status.factsheet.agv_class = RobotTypeV1.AMR.value
+            robot.status.factsheet.agv_class = VDA5050AgvClass.CARRIER.value
             # For every two robots, alternate online to true and false
             # i.e. carter0, carter1 are true, carter2, carter3 are false, etc.
             robot.status.online = i % 4 <= 1
@@ -253,10 +253,10 @@ class TestDatabase(unittest.TestCase):
             self.client.create(robot)
 
         # Add a single arm
-        robots[0].status.factsheet.agv_class = RobotTypeV1.ARM.value
+        robots[0].status.factsheet.agv_class = VDA5050AgvClass.MANIPULATOR.value
 
         # Add a single carter
-        robots[1].status.factsheet.agv_class = RobotTypeV1.AMR.value
+        robots[1].status.factsheet.agv_class = VDA5050AgvClass.CARRIER.value
 
         for robot in robots:
             self.controller_client.update_status(robot)
@@ -275,7 +275,7 @@ class TestDatabase(unittest.TestCase):
             self.controller_client.create(detection_result)
 
         # Add a single arm
-        robots[0].status.factsheet.agv_class = RobotTypeV1.ARM.value
+        robots[0].status.factsheet.agv_class = VDA5050AgvClass.MANIPULATOR.value
 
         # Set up dummy response from object detection
         detection_results[0].status.detected_objects = [
@@ -526,7 +526,7 @@ class TestDatabase(unittest.TestCase):
 
         # Test AMR query
         params = {
-            "robot_type": [RobotTypeV1.AMR.value]
+            "robot_type": [VDA5050AgvClass.CARRIER.value]
         }
         output = self.client.list(api_objects.RobotObjectV1, params)
         print("Number of AMRs: " + str(len(output)))
@@ -535,7 +535,7 @@ class TestDatabase(unittest.TestCase):
 
         # Test arm query
         params = {
-            "robot_type": [RobotTypeV1.ARM.value]
+            "robot_type": [VDA5050AgvClass.MANIPULATOR.value]
         }
         output = self.client.list(api_objects.RobotObjectV1, params)
         assert len(output) == 1

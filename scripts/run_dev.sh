@@ -1,11 +1,20 @@
 #!/bin/bash
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
+# Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
-# NVIDIA CORPORATION and its licensors retain all intellectual property
-# and proprietary rights in and to this software, related documentation
-# and any modifications thereto.  Any use, reproduction, disclosure or
-# distribution of this software and related documentation without an express
-# license agreement from NVIDIA CORPORATION is strictly prohibited.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
 
 set -e
 
@@ -15,6 +24,11 @@ docker build --network host -t isaac-mission-dispatch "${ROOT}/docker"
 #Create folder $HOME/.cache/bazel if it does not already exist
 if [ ! -d "$HOME/.cache/bazel" ]; then
   mkdir -p "$HOME/.cache/bazel"
+fi
+
+#Create folder $HOME/.cache/pip-tools if it does not already exist
+if [ ! -d "$HOME/.cache/pip-tools" ]; then
+  mkdir -p "$HOME/.cache/pip-tools"
 fi
 
 docker run -it --rm \
@@ -29,6 +43,7 @@ docker run -it --rm \
     -v "$HOME/.docker/buildx:$HOME/.docker/buildx" \
     -v "/etc/timezone:/etc/timezone:ro" \
     -v "$HOME/.cache/bazel:$HOME/.cache/bazel" \
+    -v "$HOME/.cache/pip-tools:$HOME/.cache/pip-tools" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -u $(id -u) \
     --group-add $(getent group docker | cut -d: -f3) \

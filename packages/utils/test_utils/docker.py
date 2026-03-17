@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,11 +16,15 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
+import json
+import os
 import re
+import socket
 import subprocess
-from typing import List, Tuple, Union
-import uuid
 import time
+import uuid
+from typing import List, Tuple, Union
+from urllib.parse import urlparse
 
 # Top level bash script to run as init process (PID 1) in each docker container to make sure that
 # the docker container exits when the calling python process exits
@@ -57,7 +61,42 @@ def get_container_ip(name: str) -> str:
     process = subprocess.run(["docker", "inspect", "-f",
                               "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}", name],
                              stdout=subprocess.PIPE, check=True)
-    return process.stdout.decode("utf-8")
+    ip_address = process.stdout.decode("utf-8").strip()
+    if not ip_address or ip_address == "invalid IP":  # Host network mode can sometimes return "invalid IP"
+        docker_host = os.environ.get("DOCKER_HOST", "")
+        if docker_host:
+            if "://" not in docker_host:
+                docker_host = f"tcp://{docker_host}"
+            parsed = urlparse(docker_host)
+            hostname = parsed.hostname
+            if hostname:
+                try:
+                    return socket.gethostbyname(hostname)
+                except socket.gaierror:
+                    # If hostname resolution fails, fall back to 127.0.0.1
+                    return "127.0.0.1"
+        return "127.0.0.1"
+    return ip_address
+
+
+def _image_id_after_load(manifest: list) -> str:
+    """
+    Resolve the image ID to use after loading. Prefer the ID Docker assigned to
+    the repo tag (the image we just loaded); fall back to the manifest config
+    digest if the tag is not found. This avoids mismatches when the manifest
+    digest and the image Docker reports differ (e.g. different paths, platform).
+    """
+    repotags = manifest[0].get("RepoTags") or []
+    for tag in repotags:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.Id}}", tag],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.decode("utf-8").strip()
+    # Fallback: use config digest from manifest
+    return "sha256:" + manifest[0]["Config"].split("/")[-1]
 
 def run_docker_target(bazel_target: str, args: Union[List[str], None] = None,
                       docker_args: Union[List[str], None] = None,
@@ -73,14 +112,22 @@ def run_docker_target(bazel_target: str, args: Union[List[str], None] = None,
     if not match:
         raise ValueError(f"bazel_target \"{bazel_target}\" does not match regex: \"{regex}\"")
     package, target = match.groups()
-    bundle_script = f"{package}/{target}"
+    bundle_script = os.path.join(package, f"{target}.sh")
 
     # Run the bundle script to add the image to the docker daemon, and get the hash
-    bundle_result = subprocess.run([bundle_script], stdout=subprocess.PIPE, check=True)
-    image_hash_match = re.search(r"Tagging (.+) as", bundle_result.stdout.decode("utf-8"))
-    if not image_hash_match:
-        raise ValueError(f"Could not determine image hash for target {bazel_target}")
-    image_hash = image_hash_match.groups()[0]
+    subprocess.run([bundle_script], stdout=subprocess.DEVNULL, check=True)
+    bundle_manifest = os.path.join(package, target, "manifest.json")
+    with open(bundle_manifest, "r") as f:
+        manifest = json.load(f)
+    if not manifest or "Config" not in manifest[0]:
+        raise ValueError(f"Invalid manifest contents in {bundle_manifest}")
+    # Derive image config hash from manifest entry
+    config_name = manifest[0]["Config"].split("/")[-1]
+    if config_name.startswith("sha256:"):
+        config_name = config_name[len("sha256:"):]
+    if config_name.endswith(".json"):
+        config_name = config_name[:-5]
+    image_hash = _image_id_after_load(manifest)
 
     # Get the entrypoint command
     result = subprocess.run(["docker", "inspect", "-f", "{{.Config.Entrypoint}}", image_hash],
@@ -102,7 +149,7 @@ def run_docker_target(bazel_target: str, args: Union[List[str], None] = None,
     try:
         wait_for_container(name, timeout=start_timeout)
         address = get_container_ip(name).strip()
-    except:
+    except Exception:
         process.kill()
         raise
     return process, address

@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,9 @@ mission_dispatch_py_library(
     "cloud_common/objects/mission.py",
     "cloud_common/objects/object.py",
     "cloud_common/objects/robot.py",
-    "cloud_common/objects/detection_results.py"],
+    "cloud_common/objects/detection_results.py",
+    "cloud_common/objects/apriltag_results.py",
+    "cloud_common/objects/objective.py"],
     data = ["cloud_common/objects/__init__.py"],
     deps = [
         requirement("fastapi"),

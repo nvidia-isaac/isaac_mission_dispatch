@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,11 +20,21 @@ import datetime
 import enum
 from typing import Any, Dict, List, Optional
 
-import pydantic
+import pydantic.v1 as pydantic
 from fastapi import Query
-from pydantic import Field
+from pydantic.v1 import Field
 
 from cloud_common.objects import common, object
+
+
+class VDA5050AgvClass(str, enum.Enum):
+    """Simplified description of the AGV class"""
+    FORKLIFT = "FORKLIFT"  # Forklift
+    CONVEYOR = "CONVEYOR"  # AGV with conveyors on it
+    TUGGER = "TUGGER"      # Tugger
+    CARRIER = "CARRIER"    # Load carrier with or without lifting unit
+    MANIPULATOR = "MANIPULATOR"  # Stationary Manipulator
+    HUMANOID = "HUMANOID"  # Mobile Manipulator
 
 
 class RobotStateV1(enum.Enum):
@@ -32,7 +42,6 @@ class RobotStateV1(enum.Enum):
     """
     IDLE = "IDLE"
     ON_TASK = "ON_TASK"
-    # TODO(danyu): Update robot state to charging once charging actions are ready
     CHARGING = "CHARGING"
     MAP_DEPLOYMENT = "MAP_DEPLOYMENT"
     TELEOP = "TELEOP"
@@ -56,11 +65,6 @@ class RobotTeleopActionV1(enum.Enum):
     STOP = "STOP"
 
 
-class RobotTypeV1(enum.Enum):
-    ARM = "FORKLIFT"
-    AMR = "CARRIER"
-
-
 class RobotSoftwareVersionV1(pydantic.BaseModel):
     os: str = ""
     app: str = ""
@@ -72,8 +76,48 @@ class RobotHardwareVersionV1(pydantic.BaseModel):
 
 
 class RobotTypeIdentifierV1(pydantic.BaseModel):
-    agv_class: str = ""
+    """Represents the type and capabilities of a robot.
+
+    Attributes:
+        agv_class: The VDA5050 classification of the robot (e.g. CARRIER, FORKLIFT).
+                  Defaults to CARRIER if not specified.
+        speed_max: Maximum speed of the robot in meters per second.
+    """
+    agv_class: str = VDA5050AgvClass.CARRIER.value
     speed_max: float = -1
+
+    @pydantic.validator("agv_class", pre=True, always=True)
+    def _validate_agv_class(cls, value):  # pylint: disable=no-self-argument
+        """Validate that the provided AGV class string is a valid VDA5050AgvClass value.
+
+        This validator ensures that the agv_class field contains a valid string value
+        from the VDA5050AgvClass enum.
+        """
+        # Default / missing value → fall back to historical default (CARRIER)
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            return VDA5050AgvClass.CARRIER.value
+
+        # If it's already a VDA5050AgvClass enum, get its value
+        if isinstance(value, VDA5050AgvClass):
+            return value.value
+
+        # Otherwise, validate the string value
+        if isinstance(value, str):
+            cleaned = value.strip().upper()
+            try:
+                # Validate by trying to create the enum
+                VDA5050AgvClass(cleaned)
+                return cleaned
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid VDA5050AgvClass '{value}'. "
+                    f"Allowed values: {[e.value for e in VDA5050AgvClass]}"
+                ) from exc
+
+        # Fallback – unsupported type
+        raise ValueError(
+            f"Unsupported type for agv_class: {type(value).__name__}. Expected VDA5050AgvClass."
+        )
 
 
 class RobotBatterySpecV1(pydantic.BaseModel):
@@ -86,6 +130,7 @@ class RobotBatterySpecV1(pydantic.BaseModel):
 class RobotStatusV1(pydantic.BaseModel):
     """Represents the status of the robot."""
     pose: common.Pose2D = common.Pose2D()
+    position_initialized: bool = False
     software_version: RobotSoftwareVersionV1 = RobotSoftwareVersionV1()
     hardware_version: RobotHardwareVersionV1 = RobotHardwareVersionV1()
     factsheet: RobotTypeIdentifierV1 = RobotTypeIdentifierV1()
@@ -119,8 +164,9 @@ class RobotQueryParamsV1(pydantic.BaseModel):
     max_battery: Optional[float]
     state: Optional[RobotStateV1]
     online: Optional[bool]
+    position_initialized: Optional[bool]
     names: Optional[List[str]] = Field(Query(None))
-    robot_type: Optional[RobotTypeV1]
+    robot_type: Optional[VDA5050AgvClass]
 
 
 class RobotObjectV1(RobotSpecV1, object.ApiObject):
@@ -155,6 +201,7 @@ class RobotObjectV1(RobotSpecV1, object.ApiObject):
             "names": "name in {}",
             "state": "status->>'state' = '{}'",
             "online": "status->>'online' = '{}'",
+            "position_initialized": "status->>'position_initialized' = '{}'",
             "robot_type": "(status->'factsheet'->>'agv_class')::text = '{}'"
         }
 

@@ -1,1 +1,34 @@
+# Enable Bzlmod for dependency management
+common --enable_bzlmod
+
+# Cache external downloads in a local repository cache
+common --repository_cache=.cache/bazel/repository_cache
+
+test --test_timeout=1200
+test --test_env=CUDA_VISIBLE_DEVICES=0
 test --test_output=errors
+test --test_env=WORKSPACE
+test --test_env=AWS_ACCESS_KEY_ID
+test --test_env=AWS_SECRET_ACCESS_KEY
+test --test_env=AWS_REGION
+test --test_env=AWS_ENDPOINT_URL
+test --test_tmpdir=/tmp
+# test --sandbox_writable_path=/builds/isaac_amr_platform/mission_dispatch
+
+build --cxxopt='-std=c++17'
+build --remote_timeout=3600
+common --action_env=DOCKER_CLIENT_TIMEOUT=3600
+common --action_env=COMPOSE_HTTP_TIMEOUT=3600
+common --action_env=DOCKER_HOST
+common --action_env=DOCKER_TLS_CERTDIR
+# Set platform to linux/amd64 for Docker image builds
+# build --platforms=//platforms:linux_amd64
+
+# Use our custom-configured c++ toolchain.
+build:clang_config --crosstool_top=//toolchain:clang_suite
+
+# Set --cpu for toolchain selection.
+build:clang_config --cpu=k8
+
+# Use the default Bazel C++ toolchain for host tools.
+build:clang_config --host_crosstool_top=@bazel_tools//tools/cpp:toolchain

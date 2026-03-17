@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import logging
 from cloud_common import objects
 from cloud_common.objects.mission import MissionObjectV1, MissionRouteNodeV1
 from cloud_common.objects.detection_results import DetectionResultsObjectV1
+from cloud_common.objects.apriltag_results import AprilTagResultsObjectV1
 from cloud_common.objects.robot import RobotObjectV1
 from cloud_common.objects import common
 
@@ -82,6 +83,7 @@ class DatabaseClient:
         response = requests.delete(url)
         common.handle_response(response)
         if object_type == RobotObjectV1:
+            # Delete detection results if they exist
             try:
                 self.get(DetectionResultsObjectV1, name)
                 self._logger.info(
@@ -89,9 +91,19 @@ class DatabaseClient:
                 url = f"{self._url}/detection_results/{name}"
                 response = requests.delete(url)
                 common.handle_response(response)
-            except objects.common.ICSUsageError as e:
+            except objects.common.ICSError:
+                pass
+
+            # Delete AprilTag results if they exist
+            try:
+                self.get(AprilTagResultsObjectV1, name)
                 self._logger.info(
-                    "Caught error (deleting non-existent database object): %s", e)
+                    "Deleting corresponding AprilTag results object.")
+                url = f"{self._url}/apriltag_results/{name}"
+                response = requests.delete(url)
+                common.handle_response(response)
+            except objects.common.ICSError:
+                pass
 
     def cancel_mission(self, name: str):
         url = f"{self._url}/{MissionObjectV1.get_alias()}/{name}/cancel"

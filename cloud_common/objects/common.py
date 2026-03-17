@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import enum
 
-import pydantic
+import pydantic.v1 as pydantic
 
 # Tell pylint to ignore the invalid names. We must use fields that are specified
 # by VDA5050.
@@ -56,6 +56,27 @@ class ICSServerError(ICSError):
 class TaskType(enum.Enum):
     MISSION = "MISSION"
     MAP_UPDATE = "MAP_UPDATE"
+
+class Point2D(pydantic.BaseModel):
+    x: float = 0
+    y: float = 0
+
+class Point3D(pydantic.BaseModel):
+    x: float = 0
+    y: float = 0
+    z: float = 0
+
+
+class Quaternion(pydantic.BaseModel):
+    w: float = 0
+    x: float = 0
+    y: float = 0
+    z: float = 0
+
+
+class Pose3D(pydantic.BaseModel):
+    position: Point3D = Point3D()
+    orientation: Quaternion = Quaternion()
 
 
 class Pose2D(pydantic.BaseModel):

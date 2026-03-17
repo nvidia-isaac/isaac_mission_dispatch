@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ from packages.controllers.mission.tests import client as simulator
 from cloud_common.objects import mission as mission_object
 from cloud_common.objects import robot as robot_object
 from cloud_common.objects import common
+from cloud_common.objects.robot import VDA5050AgvClass
 
 from packages.controllers.mission.tests import test_context
 
@@ -33,20 +34,24 @@ class TestRetrieveFactsheet(unittest.TestCase):
     def test_retrieve_factsheet(self):
         """ Test if factsheet retrieval is functional """
 
-        robot_arm = simulator.RobotInit("test01", 0, 0, 0, robot_type="arm")
-        robot_amr = simulator.RobotInit("test02", 0, 0, 0, robot_type="amr")
+        robot_arm = simulator.RobotInit(
+            "test01", 0, 0, 0, robot_type=VDA5050AgvClass.MANIPULATOR)
+        robot_amr = simulator.RobotInit(
+            "test02", 0, 0, 0, robot_type=VDA5050AgvClass.CARRIER)
         with test_context.TestContext([robot_arm, robot_amr], tick_period=1.0) as ctx:
-
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
             self.assertGreater(
                 len(ctx.db_client.list(api_objects.RobotObjectV1)), 0)
 
-            time.sleep(2)
-            factsheet = ctx.db_client.get(robot_object.RobotObjectV1, "test01").status.factsheet
-
-            assert (factsheet.agv_class == "FORKLIFT")
+            start_time = time.time()
+            while time.time() - start_time < 120:
+                factsheet = ctx.db_client.get(robot_object.RobotObjectV1, "test01").status.factsheet
+                if factsheet.agv_class == VDA5050AgvClass.MANIPULATOR.value:
+                    break
+                time.sleep(0.50)
+            assert (factsheet.agv_class == VDA5050AgvClass.MANIPULATOR.value)
 
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test02", status={}))
@@ -54,11 +59,13 @@ class TestRetrieveFactsheet(unittest.TestCase):
             self.assertGreater(
                 len(ctx.db_client.list(api_objects.RobotObjectV1)), 1)
 
-            time.sleep(2)
-            factsheet = ctx.db_client.get(robot_object.RobotObjectV1, "test02").status.factsheet
-
-            assert (factsheet.agv_class == "CARRIER")
-
+            start_time = time.time()
+            while time.time() - start_time < 120:
+                factsheet = ctx.db_client.get(robot_object.RobotObjectV1, "test02").status.factsheet
+                if factsheet.agv_class == VDA5050AgvClass.CARRIER.value:
+                    break
+                time.sleep(0.50)
+            assert (factsheet.agv_class == VDA5050AgvClass.CARRIER.value)
 
 if __name__ == "__main__":
     unittest.main()

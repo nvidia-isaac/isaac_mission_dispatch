@@ -1,0 +1,20 @@
+{{- if .Values.enableChart -}}
+{{- if .Values.mosquitto.enabled -}}
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-mqtt-broker" (include "mission-dispatch.fullname" . ) }}
+  labels:
+    app: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+spec:
+  ports:
+  - port: 1883
+    targetPort: mqtt
+    protocol: TCP
+    name: mqtt
+  selector:
+    app: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+
+{{- end }}
+{{- end }}
