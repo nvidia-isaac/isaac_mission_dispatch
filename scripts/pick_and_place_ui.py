@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -133,7 +133,7 @@ class BoundingBoxViewer:
         # If the byte order is different between the message and the system.
         if img_msg["is_bigendian"] == (sys.byteorder == "little"):
             print("swap")
-            img = img.byteswap().newbyteorder()
+            img = img.byteswap().view(img.dtype.newbyteorder())
         if (img_msg["encoding"] == "bgr8"):
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(img)

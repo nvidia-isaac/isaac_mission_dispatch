@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,45 +16,7 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
-load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
-load("@io_bazel_rules_docker//container:container.bzl", "container_pull")
-load("@io_bazel_rules_docker//python3:image.bzl", _py3_image_repos = "repositories")
-load("@io_bazel_rules_docker//contrib:dockerfile_build.bzl", "dockerfile_image")
-load("@io_bazel_rules_docker//container:load.bzl", "container_load")
 
+# Compatibility stub for WORKSPACE loads; deps are in MODULE.bazel
 def mission_dispatch_workspace():
-    # Pull dependencies needed for docker containers
-    container_deps()
-
-    container_pull(
-      name = "mosquitto_base",
-      registry = "dockerhub.nvidia.com",
-      repository = "eclipse-mosquitto",
-      tag = "latest",
-      digest = "sha256:8bb31a44178c8ffecc530f33f40cccac2493ad9b32a98aa50ddbaef56d21cf55"
-    )
-
-    container_pull(
-      name = "postgres_database_base",
-      registry = "docker.io/library",
-      repository = "postgres",
-      tag = "14.5",
-      digest = "sha256:db3825afa034c78d03e301c48c1e8ed581f70e4b1c0d9dd944e3639a9d4b8b75"
-    )
-
-    # Enable python3 based images
-    _py3_image_repos()
-
-    # Load dockerfile_image 
-    dockerfile_image(
-        name = "base_docker_image",
-        dockerfile = "@com_nvidia_isaac_mission_dispatch//docker:Dockerfile.base",
-        visibility = ["//visibility:public"],
-    )
-
-    # Load the image tarball.
-    container_load(
-        name = "loaded_base_docker_image",
-        file = "@base_docker_image//image:dockerfile_image.tar",
-        visibility = ["//visibility:public"],
-    )
+    """No-op stub for legacy WORKSPACE loads."""

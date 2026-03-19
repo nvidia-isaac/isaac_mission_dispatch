@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ DATABASE_CONTROLLER_PORT = 5022
 # The TCP port for the postgres db to connect on
 POSTGRES_DATABASE_PORT = 5432
 
-
 class TestPostgresDatabase(test_base.TestDatabase):
     @classmethod
     def setUpClass(cls):
@@ -42,30 +41,32 @@ class TestPostgresDatabase(test_base.TestDatabase):
         # Create the database and wait some time for it to start up
         cls.postgres_database, postgres_address = \
             cls.run_docker(cls, image="//packages/utils/test_utils:postgres-database-img-bundle",
-                           docker_args=["-e", "POSTGRES_PASSWORD=postgres",
-                                        "-e", "POSTGRES_DB=mission",
-                                        "--publish", F"{str(POSTGRES_DATABASE_PORT)
-                                                        }:{str(POSTGRES_DATABASE_PORT)}",
-                                        "-e", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256"],
-                           args=['postgres'])
+                                         docker_args=["--network", "host",
+                                                      "-e", "POSTGRES_PASSWORD=postgres", 
+                                                      "-e", "POSTGRES_DB=mission",
+                                                      "--publish", F"{str(POSTGRES_DATABASE_PORT)}:{str(POSTGRES_DATABASE_PORT)}",
+                                                      "-e", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256"],
+                                         args=['postgres'])
         test_utils.wait_for_port(host=postgres_address, port=POSTGRES_DATABASE_PORT, timeout=120)
         print(f"Database setup done on {postgres_address}:{POSTGRES_DATABASE_PORT}")
         # Startup server API's
         cls.database, address = cls.run_docker(cls, image="//packages/database:postgres-img-bundle",
-                                               args=["--port", str(DATABASE_PORT),
-                                                     "--controller_port", str(
-                                                   DATABASE_CONTROLLER_PORT),
-                                                   "--db_host", postgres_address,
-                                                   "--address", "0.0.0.0"])
+                                                         docker_args=["--network", "host"],
+                                                         args=["--port", str(DATABASE_PORT),
+                                                               "--controller_port", str(DATABASE_CONTROLLER_PORT),
+                                                               "--db_host", postgres_address,
+                                                               "--address", "0.0.0.0"])
         cls.client = db_client.DatabaseClient(f"http://{address}:{DATABASE_PORT}")
         cls.controller_client = db_client.DatabaseClient(
             f"http://{address}:{DATABASE_CONTROLLER_PORT}")
         test_utils.wait_for_port(host=address, port=DATABASE_PORT, timeout=140)
         test_utils.wait_for_port(host=address, port=DATABASE_CONTROLLER_PORT, timeout=140)
 
+
     @classmethod
     def tearDownClass(cls):
         cls.close(cls, processes=[cls.database, cls.postgres_database])
+
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,27 +19,10 @@ SPDX-License-Identifier: Apache-2.0
 
 from typing import Any, Dict, List, Optional
 
-import pydantic
+import pydantic.v1 as pydantic
 
 from cloud_common.objects import object
-
-
-class Point3D(pydantic.BaseModel):
-    x: float = 0
-    y: float = 0
-    z: float = 0
-
-
-class Quaternion(pydantic.BaseModel):
-    w: float = 0
-    x: float = 0
-    y: float = 0
-    z: float = 0
-
-
-class Pose3D(pydantic.BaseModel):
-    position: Point3D
-    orientation: Quaternion
+from cloud_common.objects.common import Pose3D
 
 
 class DetectedObjectCenter2D(pydantic.BaseModel):
@@ -85,7 +68,7 @@ class DetectionResultsStatusV1(pydantic.BaseModel):
     # The information will include bounding box information, class,
     # and ID.
 
-    detected_objects: List[DetectedObject] = []
+    detected_objects: List[DetectedObject] = pydantic.Field(default_factory=list)
 
 
 class DetectionResultsSpecV1(pydantic.BaseModel):
@@ -100,7 +83,7 @@ class DetectionResultsQueryParamsV1(pydantic.BaseModel):
 
 class DetectionResultsObjectV1(DetectionResultsSpecV1, object.ApiObject):
     """Represents an object detector."""
-    status: DetectionResultsStatusV1 = DetectionResultsStatusV1()
+    status: DetectionResultsStatusV1 = pydantic.Field(default_factory=DetectionResultsStatusV1)
 
     @classmethod
     def get_alias(cls) -> str:

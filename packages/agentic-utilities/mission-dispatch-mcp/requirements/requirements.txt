@@ -1,0 +1,5 @@
+# Core MCP dependencies
+mcp==1.26.0
+requests==2.32.5
+
+# Development dependencies (optional)

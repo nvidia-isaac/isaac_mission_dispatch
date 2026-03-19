@@ -1,3 +1,14 @@
 bazel-*
 __pycache__
 .vscode
+.cache/
+
+# Python virtual environments
+venv/
+.venv/
+**/venv/
+**/.venv/
+
+# Python packaging/build metadata
+*.egg-info/
+**/*.egg-info/

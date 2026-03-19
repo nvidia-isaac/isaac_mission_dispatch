@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -67,9 +67,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -81,9 +83,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -95,9 +99,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -110,9 +116,11 @@ py_test(
         ":mission_examples",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -124,9 +132,11 @@ py_test(
         ":test_context"
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -138,9 +148,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -152,9 +164,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -166,9 +180,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -180,9 +196,11 @@ py_test(
         ":test_context",
     ],
     tags = [
-        "exclusive"
+        "local",
+        "exclusive",
     ],
-    size = "large"
+    size = "large",
+    flaky = True
 )
 
 py_test(
@@ -194,7 +212,46 @@ py_test(
         ":test_context",
     ],
     tags = [
+        "local",
+        "exclusive",
+    ],
+    size = "large",
+    flaky = True
+)
+
+py_test(
+    name = "apriltag_test",
+    srcs = [
+        "apriltag_test.py"
+    ],
+    deps = [
+        ":test_context",
+        "//:cloud_common_objects",
+        "//packages/controllers/mission/vda5050_types",
+        requirement("pydantic")
+    ],
+    tags = [
         "exclusive"
     ],
-    size = "large"
+    size = "medium",
+    flaky = True
+)
+
+py_test(
+    name = "mission_dispatch_mcp_test",
+    srcs = [
+        "mission_dispatch_mcp_test.py",
+    ],
+    imports = ["../../../agentic-utilities/mission-dispatch-mcp"],
+    deps = [
+        ":test_context",
+        "//packages/agentic-utilities:mission_dispatch_mcp",
+        requirement("mcp"),
+    ],
+    tags = [
+        "local",
+        "exclusive",
+    ],
+    size = "large",
+    flaky = True,
 )

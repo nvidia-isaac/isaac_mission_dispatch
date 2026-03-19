@@ -1,0 +1,48 @@
+{{- if .Values.enableChart -}}
+{{- if .Values.mosquitto.enabled -}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+  labels:
+    app: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+  template:
+    metadata:
+      labels:
+        app: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+    spec:
+      volumes:
+      - name: mosquitto-conf
+        configMap:
+          name: {{ include "mission-dispatch.fullname" . }}-mosquitto-config-file
+          items:
+          - key: mosquitto.conf
+            path: mosquitto.conf
+      containers:
+      - name: {{ include "mission-dispatch.fullname" . }}-mqtt-broker
+        image: "{{ .Values.mosquitto.image.repository }}:{{ .Values.mosquitto.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.mosquitto.image.pullPolicy }}
+        volumeMounts:
+        - name: mosquitto-conf
+          mountPath: /mosquitto.conf
+          subPath: mosquitto.conf
+        args: ["mosquitto", "-c", "/mosquitto.conf"]
+        ports:
+        - name: mqtt
+          containerPort: 1883
+          protocol: TCP
+        resources:
+          requests:
+            cpu: {{ .Values.resources.mosquitto.requests.cpu }}
+            memory: {{ .Values.resources.mosquitto.requests.memory }}
+          limits:
+            cpu: {{ .Values.resources.mosquitto.limits.cpu }}
+            memory: {{ .Values.resources.mosquitto.limits.memory }}
+{{- end }}
+{{- end }}

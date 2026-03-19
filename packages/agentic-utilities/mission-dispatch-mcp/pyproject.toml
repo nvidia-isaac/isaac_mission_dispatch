@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mission-dispatch-mcp"
+version = "1.0.0"
+description = "MCP server for Mission Dispatch robot status queries"
+authors = [
+    {name = "Mission Dispatch Team"},
+]
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+dependencies = [
+    "mcp==1.26.0",
+    "requests==2.32.5",
+]
+
+[project.optional-dependencies]
+dev = [
+]
+
+[project.scripts]
+mission-dispatch-mcp = "mission_dispatch_mcp.server:main"
+
+[tool.setuptools]
+packages = ["mission_dispatch_mcp"]
+
+[tool.setuptools.package-dir]
+mission_dispatch_mcp = "src"

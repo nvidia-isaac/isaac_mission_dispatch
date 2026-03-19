@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import abc
 import argparse
 import asyncio
 from typing import Any, AsyncGenerator, List, Optional
+import logging
 import uuid
 
 import fastapi
-import pydantic
+import pydantic.v1 as pydantic
 import uvicorn
 
 from cloud_common import objects
@@ -116,7 +117,7 @@ class WebServer:
         self._port = args.port
         self._controller_port = args.controller_port
         self._root_path = args.root_path
-        self._access_log = args.access_log
+        self._access_log = not args.disable_log
 
     @classmethod
     def add_parser_args(cls, parser: argparse.ArgumentParser):
@@ -403,6 +404,16 @@ class WebServer:
             err_msg = {"message": str(
                 error), "error_code": type(error).error_code}
             return fastapi.responses.JSONResponse(status_code=400, content=err_msg)
+
+        # Exclude PUT requests from logging to reduce logs from robot state updates
+        class ExcludePUTFilter(logging.Filter):
+            def filter(self, record):
+                if "PUT" in record.getMessage():
+                    return False
+                return True
+        logger = logging.getLogger("uvicorn.access")
+        logger.addFilter(ExcludePUTFilter())
+
         # Run the server
         event_loop = asyncio.get_event_loop()
         event_loop.run_until_complete(

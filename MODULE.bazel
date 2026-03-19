@@ -1,0 +1,98 @@
+###############################################################################
+# Bazel now uses Bzlmod by default to manage external dependencies.
+# Please consider migrating your external dependencies from WORKSPACE to MODULE.bazel.
+#
+# For more details, please check https://github.com/bazelbuild/bazel/issues/18958
+###############################################################################
+
+module(name = "com_nvidia_isaac_mission_dispatch", version = "1.0")
+
+# Core build rules
+bazel_dep(name = "rules_cc", version = "0.1.1")
+bazel_dep(name = "rules_python", version = "1.6.1")
+bazel_dep(name = "rules_oci", version = "2.2.6")
+bazel_dep(name = "aspect_rules_py", version = "1.6.6")
+bazel_dep(name = "platforms", version = "0.0.10")
+
+# Pin rules_jvm_external to a version compatible with Bazel 8.4.2
+single_version_override(
+    module_name = "rules_jvm_external",
+    version = "5.3",
+)
+
+# Python toolchain configuration
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    configure_coverage_tool = True,
+    python_version = "3.10",
+)
+use_repo(python, "python_3_10", "python_versions")
+
+# OCI (container) image dependencies
+oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+
+# Base images for microservices
+oci.pull(
+    name = "python",
+    image = "nvcr.io/nvidia/ai-workbench/python-basic:1.0.9",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64",
+    ],
+)
+oci.pull(
+    name = "ubuntu",
+    image = "ubuntu:22.04",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64",
+    ],
+)
+
+# Service dependencies
+oci.pull(
+    name = "mosquitto_base",
+    image = "docker.io/library/eclipse-mosquitto:2.0.22",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64/v8",
+    ],
+)
+oci.pull(
+    name = "postgres_database_base",
+    image = "docker.io/library/postgres:14.5",
+    platforms = [
+        "linux/amd64",
+        "linux/arm64/v8",
+    ],
+)
+use_repo(
+    oci,
+    "mosquitto_base",
+    "mosquitto_base_linux_amd64",
+    "mosquitto_base_linux_arm64_v8",
+    "postgres_database_base",
+    "postgres_database_base_linux_amd64",
+    "postgres_database_base_linux_arm64_v8",
+    "python",
+    "python_linux_amd64",
+    "python_linux_arm64",
+    "ubuntu",
+    "ubuntu_linux_amd64",
+    "ubuntu_linux_arm64",
+)
+
+# Python dependencies from requirements files
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "python_third_party",
+    python_version = "3.10",
+    requirements_lock = "//bzl:requirements_lock.txt",
+)
+pip.parse(
+    hub_name = "python_third_party_linting",
+    python_version = "3.10",
+    requirements_lock = "//bzl:requirements_linting_lock.txt",
+)
+use_repo(pip, "python_third_party", "python_third_party_linting")
+

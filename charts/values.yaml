@@ -1,45 +1,92 @@
-# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+enableChart: true
 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+global:
+  ngcImagePullSecretName: "inference-container-pull-secret"
 
-#     https://www.apache.org/licenses/LICENSE-2.0
+# Image pull secrets for Docker Hub and other registries
+imagePullSecrets:
+  - name: "inference-container-pull-secret"
+  - name: "docker-hub-secret"
+  - name: "ngc-docker-reg-secret"
 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+resources:
+  dispatch:
+    requests:
+      cpu: "2"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  database:
+    requests:
+      cpu: "2"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  mosquitto:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 1Gi
 
-# SPDX-License-Identifier: Apache-2.0
 
-images:
-  # The name of the kubernetes secret which contains a key for pull images from nvcr.io
-  nvcrSecret: nvcr-secret
-  missionDispatch: nvcr.io/nvidia/isaac/mission-dispatch:3.2.0
-  missionDatabase: nvcr.io/nvidia/isaac/mission-database:3.2.0
+dispatch:
+  ingress:
+    enabled: false
+    missionUrl: ""
+  replicaCount: 1
+  image:
+    repository: nvcr.io/nvidia/isaac/mission-dispatch
+    tag: 4.3.0
 
-# The url to host mission dispatch at for external users
-missionUrl: /mission-dispatch
-mqttUrl: /mqtt
+database:
+  replicaCount: 1
+  image:
+    repository: nvcr.io/nvidia/isaac/mission-database
+    tag: 4.3.0
 
-# Postgres database hostname that Mission Dispatch will connect to
-dbHostName: postgres-db-postgresql
-# The port of the Postgres database that Mission Dispatch will connect to
-dbPort: 5432
-# The hostname of mission dispatch server
-hostDomainName: www.example.com
+postgres:
+  enabled: true
+  fullnameOverride: postgres
+  auth:
+    database: mission
+    username: postgres-user
+    existingSecret: mission-dispatch-postgres # align prefix with fullnameOverride
+    secretKeys:
+      userPasswordKey: postgres-password
+  service:
+    ports:
+      postgresql: 5432
+  primary:
+    persistence: # az33 does not allow creating pvc, networking policy or pdb
+      enabled: false
+    networkPolicy:
+      enabled: false
+    pdb:
+      create: false
+  # Update repos to use bitnamilegacy
+  image:
+    repository: bitnamilegacy/postgresql
+  volumePermissions:
+    image:
+      repository: bitnamilegacy/os-shell
+  metrics:
+    image:
+      repository: bitnamilegacy/postgres-exporter
 
-# Default Nginx Ingress Annotations
-# Nginx Ingress Controller Github: https://github.com/kubernetes/ingress-nginx
-ingressAnnotations:
-  kubernetes.io/ingress.class: nginx
-  nginx.ingress.kubernetes.io/rewrite-target: /$2
-  nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+mosquitto:
+  enabled: true
+  image:
+    repository: docker.io/eclipse-mosquitto
+    tag: 2.0.22
+    pullPolicy: Always
 
-# The namespace to start the pods and services in
-namespace:
-  # The name of the namespace to create all resources in
-  name: default
+mqtt:
+  host: ""
+  transport: "tcp"
+  username: ""
+  password: ""
+

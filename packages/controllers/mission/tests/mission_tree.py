@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import time
 import unittest
-import pydantic
+import pydantic.v1 as pydantic
 
 from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator

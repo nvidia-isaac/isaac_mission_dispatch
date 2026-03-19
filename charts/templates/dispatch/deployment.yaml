@@ -1,0 +1,50 @@
+{{- if .Values.enableChart -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mission-dispatch.fullname" . }}
+  labels:
+    app: {{ include "mission-dispatch.fullname" . }}
+spec:
+  replicas: {{ .Values.dispatch.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "mission-dispatch.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "mission-dispatch.fullname" . }}
+    spec:
+      {{ if .Values.global.ngcImagePullSecretName -}}
+      imagePullSecrets:
+        - name: {{ .Values.global.ngcImagePullSecretName | quote -}}
+      {{ else }}
+        {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{ end }}
+      containers:
+        - name: {{ include "mission-dispatch.fullname" . }}
+          image: "{{ .Values.dispatch.image.repository }}:{{ .Values.dispatch.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.dispatch.image.pullPolicy }}
+          args: 
+            - "--database_url"
+            - "http://{{ include "mission-dispatch.fullname" . }}-database-internal"
+            - "--mqtt_host"
+            - "{{ .Values.mqtt.host }}"
+            - "--mqtt_transport"
+            - "{{ .Values.mqtt.transport }}"
+            - "--mqtt_username"
+            - "{{ .Values.mqtt.username }}"
+            - "--mqtt_password"
+            - "{{ .Values.mqtt.password }}"
+            - "--disable_request_factsheet"
+          resources:
+            requests:
+              cpu: {{ .Values.resources.dispatch.requests.cpu }}
+              memory: {{ .Values.resources.dispatch.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.dispatch.limits.cpu }}
+              memory: {{ .Values.resources.dispatch.limits.memory }}
+{{- end }}

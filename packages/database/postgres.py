@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import uuid
 import enum
 
 import fastapi
-import pydantic
+import pydantic.v1 as pydantic
 import psycopg
 from psycopg import sql
 
@@ -344,7 +344,7 @@ def main():
                         help="The hostname of the postgres server")
     parser.add_argument("--db_port", default=5432, type=int,
                         help="The port to connect to on the postgres server")
-    parser.add_argument("--access_log", action="store_true",
+    parser.add_argument("--disable_log", action="store_true",
                         help="This controls whether Uvicorn access logs are emitted")
     db_password_group = parser.add_mutually_exclusive_group()
     db_password_group.add_argument("--db_password", default="postgres",

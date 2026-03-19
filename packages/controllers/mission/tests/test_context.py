@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -88,7 +88,9 @@ class TestContext:
         # Start postgreSQL db
         self._postgres_database, postgres_address = \
             self.run_docker(image="//packages/utils/test_utils:postgres-database-img-bundle",
-                            docker_args=["-e", "POSTGRES_PASSWORD=postgres",
+                            docker_args=["--network", "host",
+                                         "-p", f"{POSTGRES_DATABASE_PORT}:{POSTGRES_DATABASE_PORT}",
+                                         "-e", "POSTGRES_PASSWORD=postgres",
                                          "-e", "POSTGRES_DB=mission",
                                          "-e", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 --auth-local=scram-sha-256"],
                             args=['postgres'])
@@ -98,6 +100,7 @@ class TestContext:
         # Start the database
         self._database_process, self.database_address = \
             self.run_docker(image="//packages/database:postgres-img-bundle",
+                            docker_args=["--network", "host"],
                             args=["--port", str(DATABASE_PORT),
                                   "--controller_port", str(
                                       DATABASE_CONTROLLER_PORT),
@@ -109,6 +112,7 @@ class TestContext:
         self._mqtt_process, self.mqtt_address = self.run_docker(
             "//packages/utils/test_utils:mosquitto-img-bundle",
             args=[str(MQTT_PORT_TCP), str(MQTT_PORT_WEBSOCKET)],
+            docker_args=["--network", "host"],
             delay=delay.mqtt_broker)
 
         # Wait for both broker and db to start
@@ -130,6 +134,7 @@ class TestContext:
         # Start mission server
         self._server_process, _ = self.run_docker(
             "//packages/controllers/mission:mission-img-bundle",
+            docker_args=["--network", "host"],
             args=dispatch_args,
             delay=delay.mission_dispatch)
 
@@ -148,6 +153,7 @@ class TestContext:
             sim_args.append("--fail_as_warning")
 
         self._sim_process, _ = self.run_docker("//packages/controllers/mission/tests:client-img-bundle",
+                                               docker_args=["--network", "host"],
                                                args=sim_args,
                                                delay=delay.mission_simulator)
 
@@ -170,6 +176,7 @@ class TestContext:
         time.sleep(1)
         self._server_process, _ = self.run_docker(
             "//packages/controllers/mission:mission-img-bundle",
+            docker_args=["--network", "host"],
             args=["--mqtt_port", str(MQTT_PORT),
                   "--mqtt_host", self.mqtt_address,
                   "--mqtt_transport", str(MQTT_TRANSPORT),
@@ -183,6 +190,7 @@ class TestContext:
         time.sleep(1)
         self._mqtt_process, self.mqtt_address = self.run_docker(
             "//packages/utils/test_utils:mosquitto-img-bundle",
+            docker_args=["--network", "host"],
             args=[str(MQTT_PORT_TCP), str(MQTT_PORT_WEBSOCKET)])
         self.wait_for_mqtt()
 
@@ -208,9 +216,14 @@ class TestContext:
         return process, queue.get()
 
     def close(self, processes):
+        # Send termination signals to all processes first for parallel cleanup
         for process in processes:
             if process is not None:
                 process.terminate()
+        
+        # Then wait for them to exit
+        for process in processes:
+            if process is not None:
                 process.join()
                 process.close()
 
@@ -228,6 +241,8 @@ class TestContext:
     def __exit__(self, type, value, traceback):
         self.close([self._server_process, self._database_process,
                     self._postgres_database, self._mqtt_process, self._sim_process])
+        # Wait for ports to be released (--network host mode requires cleanup time)
+        time.sleep(5)
         self.logger.info(f"Context closed: {self._name}")
 
 

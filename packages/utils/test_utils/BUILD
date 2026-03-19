@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 load("@python_third_party//:requirements.bzl", "requirement")
 load("//bzl:python.bzl", "mission_dispatch_py_library")
-load("@io_bazel_rules_docker//container:container.bzl", "container_image", "container_bundle")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
 
 mission_dispatch_py_library(
     name = "test_utils",
@@ -30,27 +30,40 @@ mission_dispatch_py_library(
     visibility = ["//visibility:public"]
 )
 
-container_image(
+oci_image(
     name = "mosquitto-img",
-    base = "@mosquitto_base//image",
-    files = [
-        "mosquitto.sh"
+    base = "@mosquitto_base",
+    entrypoint = [
+        "sh",
+        "/mosquitto.sh",
     ],
-    entrypoint = ["sh", "mosquitto.sh"]
+    tars = [":mosquitto-files-layer"],
 )
 
-container_bundle(
+# Create a tar layer for mosquitto files
+genrule(
+    name = "mosquitto-files-layer",
+    srcs = ["mosquitto.sh"],
+    outs = ["mosquitto-files.tar"],
+    cmd = "tmpdir=$$(mktemp -d) && cp $(SRCS) $$tmpdir/ && tar -czf $@ -C $$tmpdir . && rm -rf $$tmpdir",
+)
+
+oci_load(
     name = "mosquitto-img-bundle",
-    images = {
-        "bazel-image": ":mosquitto-img"
-    },
-    visibility = ["//visibility:public"]
+    image = ":mosquitto-img",
+    repo_tags = ["bazel/packages/utils/test_utils/mosquitto:latest"],
+    visibility = ["//visibility:public"],
 )
 
-container_bundle(
+oci_image(
+    name = "postgres-database-img",
+    base = "@postgres_database_base",
+    visibility = ["//visibility:public"],
+)
+
+oci_load(
     name = "postgres-database-img-bundle",
-    images = {
-        "bazel-image": "@postgres_database_base//image"
-    },
-    visibility = ["//visibility:public"]
+    image = ":postgres-database-img",
+    repo_tags = ["bazel/packages/utils/test_utils/postgres-database:latest"],
+    visibility = ["//visibility:public"],
 )

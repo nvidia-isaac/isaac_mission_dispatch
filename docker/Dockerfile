@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,9 +23,14 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install python3 python3-pip -y
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
-# Install bazel
+# Install bazel (architecture-aware)
+ARG TARGETARCH
 RUN apt-get install wget -y
-RUN wget --progress=dot:mega https://github.com/bazelbuild/bazel/releases/download/6.5.0/bazel-6.5.0-linux-x86_64 -O /usr/bin/bazel
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      wget --progress=dot:mega https://github.com/bazelbuild/bazel/releases/download/8.4.2/bazel-8.4.2-linux-arm64 -O /usr/bin/bazel; \
+    else \
+      wget --progress=dot:mega https://github.com/bazelbuild/bazel/releases/download/8.4.2/bazel-8.4.2-linux-x86_64 -O /usr/bin/bazel; \
+    fi
 RUN chmod +x /usr/bin/bazel
 
 # Install docker
@@ -42,6 +47,6 @@ RUN echo \
   "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu \
   $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
 RUN apt-get update
-RUN apt-get install -y docker-ce-cli
+RUN apt-get install -y docker-ce-cli=5:29.1.4-1~ubuntu.22.04~jammy
 
 RUN apt-get update && apt-get install libgl1-mesa-glx ffmpeg libsm6 libxext6 python3-tk -y

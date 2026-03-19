@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 from collections import OrderedDict
 
 import paho.mqtt.client as mqtt_client
-import pydantic
+import pydantic.v1 as pydantic
 
 from packages.controllers.mission import behavior_tree
 import packages.controllers.mission.vda5050_types as types
@@ -42,8 +42,10 @@ import cloud_common.objects as api_objects
 import cloud_common.objects.mission as mission_object
 import cloud_common.objects.robot as robot_object
 from cloud_common.objects.detection_results import DetectedObject
+from cloud_common.objects.apriltag_results import DetectedAprilTag
 
 import importlib
+import importlib.util
 
 module_name = "internal_packages.push_data.telemetry_sender"
 try:
@@ -94,12 +96,22 @@ class Robot:
         self._database = db
         self._robot_object: Optional[api_objects.RobotObjectV1] = None
         self._detection_results_object: Optional[api_objects.DetectionResultsObjectV1] = None
+        self._apriltag_results_object: Optional[api_objects.AprilTagResultsObjectV1] = None
         # Try to get existing detected objects.
         try:
             self._detection_results_object = cast(
                 api_objects.DetectionResultsObjectV1,
                 self._database.get(
                     api_objects.DetectionResultsObjectV1, self._name)
+            )
+        except api_objects.common.ICSError:
+            pass
+        # Try to get existing AprilTag results.
+        try:
+            self._apriltag_results_object = cast(
+                api_objects.AprilTagResultsObjectV1,
+                self._database.get(
+                    api_objects.AprilTagResultsObjectV1, self._name)
             )
         except api_objects.common.ICSError:
             pass
@@ -392,6 +404,8 @@ class Robot:
             self._robot_online_task = \
                 asyncio.get_event_loop().create_task(self._check_robot_online())
             if message.agvPosition:
+                self._robot_object.status.position_initialized = \
+                    message.agvPosition.positionInitialized
                 self._robot_object.status.pose.x = message.agvPosition.x
                 self._robot_object.status.pose.y = message.agvPosition.y
                 self._robot_object.status.pose.theta = message.agvPosition.theta
@@ -491,6 +505,21 @@ class Robot:
                         self._detection_results_object)
                     self.info(
                         "Updated object detector information in mission database.")
+                # Handle AprilTag detection results
+                elif (action_state.actionStatus == types.VDA5050ActionStatus.FINISHED and
+                        action_state.actionType == types.NVActionType.GET_APRILTAGS and
+                        self.robot_object is not None):
+                    if self._apriltag_results_object is None:
+                        self._apriltag_results_object = api_objects.AprilTagResultsObjectV1(
+                            name=self.robot_object.name)
+                        self._database.create(self._apriltag_results_object)
+
+                    # Parse AprilTag results from JSON in resultDescription
+                    self._apriltag_results_object.status.detected_apriltags = \
+                        [DetectedAprilTag(**item) for item in json.loads(
+                            action_state.resultDescription)]
+                    self._database.update_status(self._apriltag_results_object)
+                    self.info("Updated AprilTag detection information in mission database.")
 
         finished_instant_actions = await self.handle_instant_action(message)
         self.update_robot_state(finished_instant_actions)
@@ -993,7 +1022,7 @@ class RobotServer:
             try:
                 client.connect(host, port)
                 connected = True
-            except (ConnectionRefusedError, ConnectionResetError):
+            except (ConnectionRefusedError, ConnectionResetError, TimeoutError):
                 self.warning("Failed to connect to mqtt broker, retrying in "
                              f"{MQTT_RECONNECT_PERIOD}s")
                 time.sleep(MQTT_RECONNECT_PERIOD)
@@ -1001,6 +1030,7 @@ class RobotServer:
                 self.warning(f"Could not resolve mqtt hostname {host}, retrying in "
                              f"{MQTT_RECONNECT_PERIOD}s")
                 time.sleep(MQTT_RECONNECT_PERIOD)
+        self.info("Successfully connected to MQTT broker")
         return client
 
     async def stop(self):

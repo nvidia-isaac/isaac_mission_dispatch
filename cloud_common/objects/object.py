@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import enum
 import uuid
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Type
 
-import pydantic
+import pydantic.v1 as pydantic
 
 # The number of characters to include in the short object ID
 SHORT_ID_LENGTH = 8

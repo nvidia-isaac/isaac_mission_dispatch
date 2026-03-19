@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,10 +30,13 @@ import time
 from typing import Dict, List, Optional, Union
 
 import paho.mqtt.client as mqtt_client
-import pydantic
+import pydantic.v1 as pydantic
 
 import packages.controllers.mission.vda5050_types as types
-from cloud_common.objects.detection_results import DetectedObject, DetectedObjectBoundingBox2D
+from cloud_common.objects.detection_results import DetectedObject, DetectedObjectBoundingBox2D, DetectedObjectCenter2D
+from cloud_common.objects.apriltag_results import DetectedAprilTag, AprilTagCenter2D
+from cloud_common.objects.robot import VDA5050AgvClass
+from cloud_common.objects.common import Pose3D, Point3D, Quaternion
 
 DISTANCE_THRESHOLD = 0.05
 
@@ -215,9 +218,74 @@ class DetectionActionServer(ActionObject):
             self._status = types.VDA5050ActionStatus.RUNNING
         else:
             self._status = types.VDA5050ActionStatus.FINISHED
-            self._result_description = json.dumps([
-                DetectedObject(bbox2d=DetectedObjectBoundingBox2D()).dict()])
+            # Create mock object detection results with proper object_id and class_id
+            mock_detected_object = DetectedObject(
+                object_id=0,
+                class_id="",  # Empty string to match test expectations
+                bbox2d=DetectedObjectBoundingBox2D(
+                    center=DetectedObjectCenter2D(x=100.0, y=100.0, theta=0.0)
+                )
+            )
+            self._result_description = json.dumps([mock_detected_object.dict()])
 
+        return self._status
+
+
+class AprilTagActionServer(ActionObject):
+    """An action server that executes AprilTag detection"""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.GET_APRILTAGS)
+
+    def start(self, params):
+        self.logger.info("Start AprilTag detection action")
+        self._status = types.VDA5050ActionStatus.RUNNING
+        self._completed_time = time.time() + 1
+
+    def update_status(self):
+        if time.time() < self._completed_time:
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FINISHED
+            # Create mock AprilTag detection results
+            mock_apriltag = DetectedAprilTag(
+                tag_id=42,
+                family="tag36h11",
+                center=AprilTagCenter2D(x=320.0, y=240.0),
+                pose=Pose3D(
+                    position=Point3D(x=1.0, y=0.5, z=0.0),
+                    orientation=Quaternion(w=1.0, x=0.0, y=0.0, z=0.0)
+                ),
+                frame_id="camera_link",
+                timestamp=time.time()
+            )
+            self._result_description = json.dumps([mock_apriltag.dict()])
+
+        return self._status
+
+
+class PickPlaceActionServer(ActionObject):
+    """An action server that executes pick and place actions"""
+
+    def __init__(self, robot) -> None:
+        self.robot = robot
+        self.logger = logging.getLogger(LOGGING_NAME)
+        super().__init__(types.NVActionType.PICK_AND_PLACE)
+
+    def start(self, params):
+        self.logger.info("Start pick and place action")
+        self._status = types.VDA5050ActionStatus.RUNNING
+        # Simulate pick and place operation for 2 seconds
+        self._completed_time = time.time() + 2
+
+    def update_status(self):
+        if time.time() < self._completed_time:
+            self._status = types.VDA5050ActionStatus.RUNNING
+        else:
+            self._status = types.VDA5050ActionStatus.FINISHED
+            self.logger.info("Pick and place action completed")
         return self._status
 
 
@@ -227,7 +295,8 @@ class RobotInit:
     def __init__(self, name: str, x: float, y: float, theta: float = 0.0, map_id: str = "map",
                  failure_period: int = 0, battery: float = 0.0,
                  manufacturer: str = "", serial_number: str = "",
-                 fail_as_warning=False, robot_type=""):
+                 fail_as_warning=False,
+                 robot_type: VDA5050AgvClass = VDA5050AgvClass.CARRIER):
         self.name = name
         self.x = x
         self.y = y
@@ -241,14 +310,19 @@ class RobotInit:
         self.robot_type = robot_type
 
     def __str__(self) -> str:
-        params = [self.name, self.x, self.y, self.theta,
-                  self.map_id, self.failure_period, self.battery]
-        if self.manufacturer != "":
-            params.append(self.manufacturer)
-        if self.serial_number != "":
-            params.append(self.serial_number)
-        if self.robot_type != "":
-            params.append(self.robot_type)
+        # Always include all fields up to robot_type, using empty strings as placeholders
+        params = [
+            self.name,
+            self.x,
+            self.y,
+            self.theta,
+            self.map_id,
+            self.failure_period,
+            self.battery,
+            self.manufacturer,
+            self.serial_number,
+            self.robot_type.value,
+        ]
         return ",".join(str(param) for param in params)
 
 
@@ -273,27 +347,31 @@ class Robot:
             lastNodeSequenceId=0,
             nodeStates=[],
             edgeStates=[],
-            agvPosition={"x": init.x, "y": init.y,
-                         "theta": init.theta, "mapId": init.map_id},
+            agvPosition=types.VDA5050AgvPosition(
+                x=init.x, y=init.y, theta=init.theta, mapId=init.map_id
+            ),
             actionStates=[],
-            batteryState={"batteryCharge": init.battery,
-                          "charging": False},
+            batteryState=types.VDA5050BatteryState(
+                batteryCharge=init.battery,
+                batteryVoltage=None,
+                batteryHealth=None,
+                charging=False,
+                reach=None,
+            ),
             safetyState=types.VDA5050SafetyStatus(
                 eStop=types.VDA5050EStop.NONE, fieldViolation=False
-            )
+            ),
+            velocity=types.VDA5050Velocity(vx=0.0, vy=0.0, omega=0.0),
         )
         self.visualization = types.VDA5050Visualization(
             headerId=0,
             timestamp="",
             manufacturer=init.manufacturer,
             serialNumber=init.serial_number,
-            agvPosition={
-                "x": init.x,
-                "y": init.y,
-                "theta": init.theta,
-                "mapId": init.map_id,
-            },
-            velocity={"vx": 0.0, "vy": 0.0, "omega": 0.0},
+            agvPosition=types.VDA5050AgvPosition(
+                x=init.x, y=init.y, theta=init.theta, mapId=init.map_id
+            ),
+            velocity=types.VDA5050Velocity(vx=0.0, vy=0.0, omega=0.0),
         )
         self.client = client
         self.failure_period = init.failure_period
@@ -315,26 +393,55 @@ class Robot:
         self._teleop_action_server = TeleopActionServer(robot=self)
         self._docking_action_server = DockingActionServer(robot=self)
         self._detection_action_server = DetectionActionServer(robot=self)
+        self._apriltag_action_server = AprilTagActionServer(robot=self)
+        self._pick_place_action_server = PickPlaceActionServer(robot=self)
         self.robot_type = init.robot_type
+        self._header_id_counter = 0
+
+        # Initialize factsheet based on robot_type
+        self.factsheet = types.VDA5050Factsheet(
+            protocolLimits=None,
+            protocolFeatures=None,
+            agvGeometry=None,
+            loadSpecification=None,
+            localizationParameters=None,
+        )
+        self.factsheet.headerId = self._get_next_header_id()
+        self.factsheet.timestamp = datetime.datetime.now().isoformat()
+        self.factsheet.manufacturer = init.manufacturer
+        self.factsheet.serialNumber = init.serial_number
+        self.factsheet.typeSpecification.agvClass = self.robot_type.value
+
+    def _get_next_header_id(self):
+        """Get the next header ID and increment the counter"""
+        header_id = self._header_id_counter
+        self._header_id_counter += 1
+        return header_id
 
     @property
     def action_server_triggered(self):
         return self._map_load_action_server.triggered or \
             self._dummy_action_server.triggered or \
             self._teleop_action_server.triggered or \
-            self._docking_action_server.triggered
+            self._docking_action_server.triggered or \
+            self._detection_action_server.triggered or \
+            self._apriltag_action_server.triggered or \
+            self._pick_place_action_server.triggered
 
     def publish_state(self):
+        self.state.headerId = self._get_next_header_id()
         self.state.timestamp = datetime.datetime.now().isoformat()
         self.client.publish(
             f"{self._mqtt_prefix}/{self.name}/state", self.state.json())
 
     def publish_factsheet(self):
-        self.state.timestamp = datetime.datetime.now().isoformat()
+        self.factsheet.headerId = self._get_next_header_id()
+        self.factsheet.timestamp = datetime.datetime.now().isoformat()
         self.client.publish(
             f"{self._mqtt_prefix}/{self.name}/factsheet", self.factsheet.json())
 
     def publish_visualization(self):
+        self.visualization.headerId = self._get_next_header_id()
         self.visualization.timestamp = datetime.datetime.now().isoformat()
         self.client.publish(
             f"{self._mqtt_prefix}/{self.name}/visualization", self.visualization.json()
@@ -500,6 +607,10 @@ class Robot:
             return self._docking_action_server
         elif action_type == types.NVActionType.GET_OBJECTS.value:
             return self._detection_action_server
+        elif action_type == types.NVActionType.GET_APRILTAGS.value:
+            return self._apriltag_action_server
+        elif action_type == types.NVActionType.PICK_AND_PLACE.value:
+            return self._pick_place_action_server
 
         return self._dummy_action_server
 
@@ -596,51 +707,61 @@ class Robot:
                 self.logger.info("Finished %s Teleop", action.actionType)
 
             elif action.actionType == types.VDA5050InstantActionType.FACTSHEET_REQUEST:
-                self.factsheet = types.VDA5050Factsheet()
-
-                if self.robot_type == "arm":
-                    self.factsheet.typeSpecification.agvClass = "FORKLIFT"
-                    self.factsheet.physicalParameters.speedMax = 0
-                    self.factsheet.headerId = 3
-                    self.factsheet.timestamp = datetime.datetime.now().isoformat()
-                    self.factsheet.manufacturer = ""
-                    self.factsheet.serialNumber = ""
-
-                elif self.robot_type == "amr":
-                    self.factsheet.typeSpecification.agvClass = "CARRIER"
-                    self.factsheet.physicalParameters.speedMax = 1
-
+                self.factsheet = types.VDA5050Factsheet(
+                    protocolLimits=None,
+                    protocolFeatures=None,
+                    agvGeometry=None,
+                    loadSpecification=None,
+                    localizationParameters=None,
+                )
+                self.factsheet.timestamp = datetime.datetime.now().isoformat()
+                self.factsheet.manufacturer = self.state.manufacturer
+                self.factsheet.serialNumber = self.state.serialNumber
+                self.factsheet.typeSpecification.agvClass = self.robot_type.value
+                self.factsheet.physicalParameters.speedMax = 0 if \
+                    self.robot_type == VDA5050AgvClass.MANIPULATOR else 1
                 self.publish_factsheet()
 
 
 def robot_parser(spec: str) -> RobotInit:
     params = spec.split(",")
-    map_id, theta, failure_period, battery = "map", "0", "0", "0"
-    manufacturer, serial_number, robot_type = "", "", ""
-    if len(params) == 3:
-        name, x, y = params
-    elif len(params) == 4:
-        name, x, y, theta = params
-    elif len(params) == 5:
-        name, x, y, theta, map_id = params
-    elif len(params) == 6:
-        name, x, y, theta, map_id, failure_period = params
-    elif len(params) == 7:
-        name, x, y, theta, map_id, failure_period, battery = params
-    elif len(params) == 8:
-        name, x, y, theta, map_id, failure_period, battery, robot_type = params
-    elif len(params) == 9:
-        name, x, y, theta, map_id, failure_period, battery, manufacturer, serial_number = params
+    name = params[0]
+    x = float(params[1])
+    y = float(params[2])
+    theta = float(params[3]) if len(params) > 3 else 0.0
+    map_id = params[4] if len(params) > 4 else "map"
+    failure_period = int(params[5]) if len(params) > 5 else 0
+    battery = float(params[6]) if len(params) > 6 else 20.0
+    manufacturer = params[7] if len(params) > 7 else "RobotCompany"
+    serial_number = params[8] if len(params) > 8 else "carter01"
+    if len(params) > 9:
+        robot_type = VDA5050AgvClass(params[9].upper())
     else:
+        robot_type = VDA5050AgvClass.CARRIER
+
+    if len(params) not in [3, 4, 5, 6, 7, 8, 9, 10]:
         raise argparse.ArgumentTypeError("""Robot spec must be of the form \"name,x,y\",
                                          \"name,x,y,theta\", \"name,x,y,theta,map_id\",
                                          \"name,x,y,theta,map_id,failure_period\", or
                                          \"name,x,y,theta,map_id,failure_period,battery\", or
-                                         \"name,x,y,theta,map_id,failure_period,battery,robot_type\", or
+                                         \"name,x,y,theta,map_id,failure_period,battery,manufacturer\", or
                                          \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
-                                         serial_number\"""")
-    return RobotInit(name, float(x), float(y), float(theta), map_id, int(failure_period),
-                     float(battery), manufacturer, serial_number, robot_type=robot_type)
+                                         serial_number\", or
+                                         \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
+                                         serial_number,robot_type\"""")
+
+    return RobotInit(
+        name=name,
+        x=x,
+        y=y,
+        theta=theta,
+        map_id=map_id,
+        failure_period=failure_period,
+        battery=battery,
+        manufacturer=manufacturer,
+        serial_number=serial_number,
+        robot_type=robot_type
+    )
 
 
 class Simulator:
