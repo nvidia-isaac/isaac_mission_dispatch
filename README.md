@@ -4,7 +4,7 @@
 Isaac Mission Dispatch is a cloud service that enables the communication between edge robots and other cloud services responsible for managing a fleet of robots. The communication between Mission Dispatch and robots is designed per [VDA5050 protocol](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) and uses [MQTT](https://mqtt.org/), as MQTT is the industry standard for a highly efficient, scalable protocol for connecting devices over the internet. VDA 5050 is an open standard for communication between fleets of AGVs/AMRs and a central fleet service. 
 
 <div align="center"><img src="docs/resources/MD.png" width="650px"/></div>
-<div><i align = "center">Diagram highlighting this package. Mission Dispatch and Client in green. This simplified diagram of a fleet management system on the left is connected to a robot running ROS 2 on the right. References are provided to database and MQTT services. Mission Dispatch needs to be integrated with the fleet management system of preference. A matching ROS 2 <a href="https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client">Mission Client</a> is available for ROS 2 Humble; or use the <a href="https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector">VDA5050 connector</a> from OTTO Motors & InOrbit AI on ROS 2 Galactic with Mission Dispatch.</i></div>
+<div><i align = "center">Diagram highlighting this package. Mission Dispatch and Client in green. This simplified diagram of a fleet management system on the left is connected to a robot running ROS 2 on the right. References are provided to database and MQTT services. Mission Dispatch needs to be integrated with the fleet management system of preference. A matching ROS 2 <a href="https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client">Mission Client</a> is available for ROS 2 Humble or Jazzy; or use the <a href="https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector">VDA5050 connector</a> from OTTO Motors & InOrbit AI on ROS 2 Galactic with Mission Dispatch.</i></div>
 <br>
 
 The Mission Dispatch system is composed of two main components:
@@ -109,7 +109,7 @@ We provide three deployment options here for using Mission Dispatch services: de
 Download the repository:
 
 ```
-git clone --recurse-submodules https://github.com/isaac_amr_platform/mission_dispatch.git
+git clone https://github.com/isaac_amr_platform/mission_dispatch.git
 ```
 
 Continue here to run Mission Dispatch microservices directly on a computer, CSP, or EGX. Skip to section [Getting Started with Local Development](#getting-started-with-local-development) to develop services locally on your computer.
