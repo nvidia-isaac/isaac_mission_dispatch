@@ -156,10 +156,10 @@ Note : When deploying with Docker containers from nvcr.io on an ARM64 machine, u
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-database:4.3.0-amd64
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.3.0-amd64
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-database:4.3.0 --help
+    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.3.0 --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -167,7 +167,7 @@ Note : When deploying with Docker containers from nvcr.io on an ARM64 machine, u
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-dispatch:4.3.0-amd64
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:4.3.0-amd64
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -212,7 +212,7 @@ docker compose -f mission_dispatch_services.yaml up
 3. Test with Mission Simulator:
 
     ```
-    docker run -it --network host  nvcr.io/nvstaging/isaac-amr/mission-simulator:4.3.0-amd64 --robots carter_x,4,5 \
+    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:4.3.0-amd64 --robots carter_x,4,5 \
         --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
@@ -316,7 +316,7 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvstaging/isaac-amr/mission-simulator:4.3.0-amd64 --robots \
+docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:4.3.0-amd64 --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
