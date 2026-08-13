@@ -64,7 +64,7 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
 
 | Date    | Changes |
 |---------|---------|
-| 2026-03 | VDA5050 3.0 support, add generic action node. |
+| 2026-08 | VDA5050 3.0 support, add generic action node. |
 | 2026-03 | Mission Dispatch MCP, VDA5050 2.2 map distribution updates, ARM64 support, bug fixes. |
 | 2023-10 | Addition of battery status, update/cancel missions, nodePosition, bug fixes. |
 | 2022-10 | Initial release. |
@@ -646,7 +646,7 @@ If the user intends to integrate teleoperation within a specific mission node, t
     {
       "name": "forklift_teleop",
       "parent": "root",
-      "action": 5{
+      "action": {
         "action_type": "pause_order",
         "action_parameters": {}
       }
