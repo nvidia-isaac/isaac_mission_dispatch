@@ -32,3 +32,4 @@ build:clang_config --cpu=k8
 
 # Use the default Bazel C++ toolchain for host tools.
 build:clang_config --host_crosstool_top=@bazel_tools//tools/cpp:toolchain
+

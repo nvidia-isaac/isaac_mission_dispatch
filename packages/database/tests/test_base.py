@@ -19,6 +19,8 @@ SPDX-License-Identifier: Apache-2.0
 import multiprocessing
 import os
 import signal
+import subprocess
+import uuid
 import datetime
 from typing import Any, List, Tuple, Dict, Union
 
@@ -47,27 +49,66 @@ class TestDatabase(unittest.TestCase):
         TestDatabase.has_process_crashed = True
         raise OSError("Child process crashed!")
 
+    def reap_orphaned_containers(cls):
+        """Force-remove any leftover bazel-test-* containers from a prior run.
+
+        These are named "bazel-test-*" and normally torn down in close(), but a test
+        that is hard killed (e.g. a bazel test timeout, which sends SIGKILL) cannot run
+        its cleanup, so its shell-less containers keep squatting the fixed ports below.
+        These tests are tagged "exclusive", so any surviving bazel-test container is
+        necessarily an orphan and safe to remove before we start our own.
+        """
+        result = subprocess.run(  # pylint: disable=subprocess-run-check
+            ["docker", "ps", "-aq", "--filter", "name=bazel-test-"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        container_ids = result.stdout.decode().split()
+        if not container_ids:
+            return
+        subprocess.run(["docker", "rm", "-f", *container_ids],  # pylint: disable=subprocess-run-check
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     def run_docker(cls, image: str, args: List[str], docker_args: Union[List[str], None] = None,
                    delay: int = 0) -> Tuple[multiprocessing.Process, str]:
         pid = os.getpid()
         queue: multiprocessing.queues.Queue[str] = multiprocessing.Queue()
+        # Name the container up front so close() can stop it explicitly. The images
+        # run shell-less (distroless), so we can no longer rely on a shell PID-1 that
+        # exits when the caller's stdin closes -- we must remove the container by name.
+        name = f"bazel-test-{str(uuid.uuid4())}"
 
         def wrapper_process():
             docker_process, address = \
                 test_utils.run_docker_target(image, args=args,
-                                             docker_args=docker_args, delay=delay)
+                                             docker_args=docker_args, delay=delay, name=name)
             queue.put(address)
             docker_process.wait()
             os.kill(pid, signal.SIGUSR1)
 
         process = multiprocessing.Process(target=wrapper_process, daemon=True)
         process.start()
+        process.container_name = name
         return process, queue.get()
 
     def close(cls, processes):
+        # Terminate the wrapper processes first so a deliberate shutdown does not fire
+        # the SIGUSR1 "crashed" signal (the wrapper only signals if it reaches
+        # docker_process.wait()'s return on its own).
         for process in processes:
             if process is not None:
                 process.terminate()
+
+        # Force-remove the containers by name (the shell-less containers are not torn
+        # down by killing the docker CLI alone).
+        for process in processes:
+            if process is not None:
+                name = getattr(process, "container_name", None)
+                if name is not None:
+                    subprocess.run(["docker", "rm", "-f", name],  # pylint: disable=subprocess-run-check
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Then wait for the wrapper processes to exit
+        for process in processes:
+            if process is not None:
                 process.join()
 
     def test_insert_fetch(self):

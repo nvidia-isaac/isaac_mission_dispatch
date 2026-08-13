@@ -19,8 +19,10 @@ SPDX-License-Identifier: Apache-2.0
 import os
 import multiprocessing
 import random
+import subprocess
 import time
 import signal
+import uuid
 from typing import Dict, List, NamedTuple, Tuple, Optional
 
 from cloud_common import objects as api_objects
@@ -70,6 +72,23 @@ class TestContext:
         self.logger = logging.getLogger("Isaac Mission Dispatch Test Context")
         if TestContext.crashed_process:
             raise ValueError("Can't run test due to previous failure")
+
+        # Pre-initialize container handles so __exit__ can always tear down whatever
+        # started, even if __init__ fails partway (the shell-less containers no longer
+        # self-terminate when the caller dies, so leftovers would squat on ports).
+        self._postgres_database = None
+        self._database_process = None
+        self._mqtt_process = None
+        self._server_process = None
+        self._sim_process = None
+
+        # Reap any containers left behind by a previous test. These are named
+        # "bazel-test-*" and normally torn down in close(), but a test that is hard
+        # killed (e.g. a bazel test timeout, which sends SIGKILL) cannot run its
+        # cleanup, so its shell-less containers keep squatting the fixed ports below.
+        # These tests are tagged "exclusive", so any surviving bazel-test container is
+        # necessarily an orphan and safe to remove before we start our own.
+        self._reap_orphaned_containers()
 
         # Set random seed to get pseudo-random numbers for consistent testing result
         random.seed(0)
@@ -138,8 +157,11 @@ class TestContext:
             args=dispatch_args,
             delay=delay.mission_dispatch)
 
-        # Start simulator
-        sim_args = ["--robots", " ".join(str(robot) for robot in self._robots),
+        # Start simulator. Pass each robot as its own --robots value (argparse
+        # nargs="+"); do not space-join them into one string. The containers now run
+        # without a shell, so a joined "robotA robotB" string would reach the
+        # simulator as a single malformed argument instead of being word-split.
+        sim_args = ["--robots", *[str(robot) for robot in self._robots],
                     "--speed", str(SIM_SPEED),
                     "--mqtt_port", str(MQTT_PORT),
                     "--mqtt_host", self.mqtt_address,
@@ -198,30 +220,58 @@ class TestContext:
         TestContext.crashed_process = True
         raise OSError("Child process crashed!")
 
+    def _reap_orphaned_containers(self):
+        """Force-remove any leftover bazel-test-* containers from a prior run."""
+        result = subprocess.run(  # pylint: disable=subprocess-run-check
+            ["docker", "ps", "-aq", "--filter", "name=bazel-test-"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        container_ids = result.stdout.decode().split()
+        if not container_ids:
+            return
+        self.logger.info("Reaping %d orphaned test container(s)", len(container_ids))
+        subprocess.run(["docker", "rm", "-f", *container_ids],  # pylint: disable=subprocess-run-check
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     def run_docker(self, image: str, args: List[str], docker_args: List[str] = None,
                    delay: float = 0.0) -> Tuple[multiprocessing.Process, str]:
         pid = os.getpid()
         queue = multiprocessing.Queue()
+        # Name the container up front so close() can stop it explicitly. The images
+        # run shell-less (distroless), so we can no longer rely on a shell PID-1 that
+        # exits when the caller's stdin closes -- we must remove the container by name.
+        name = f"bazel-test-{str(uuid.uuid4())}"
 
         def wrapper_process():
             docker_process, address = \
                 test_utils.run_docker_target(
-                    image, args=args, docker_args=docker_args, delay=delay)
+                    image, args=args, docker_args=docker_args, delay=delay, name=name)
             queue.put(address)
             docker_process.wait()
             os.kill(pid, signal.SIGUSR1)
 
         process = multiprocessing.Process(target=wrapper_process, daemon=True)
         process.start()
+        process.container_name = name
         return process, queue.get()
 
     def close(self, processes):
-        # Send termination signals to all processes first for parallel cleanup
+        # Terminate the wrapper processes first so a deliberate shutdown does not fire
+        # the SIGUSR1 "crashed" signal (the wrapper only signals if it reaches
+        # docker_process.wait()'s return on its own).
         for process in processes:
             if process is not None:
                 process.terminate()
-        
-        # Then wait for them to exit
+
+        # Force-remove the containers by name (the shell-less containers are not torn
+        # down by killing the docker CLI alone).
+        for process in processes:
+            if process is not None:
+                name = getattr(process, "container_name", None)
+                if name is not None:
+                    subprocess.run(["docker", "rm", "-f", name],  # pylint: disable=subprocess-run-check
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # Then wait for the wrapper processes to exit
         for process in processes:
             if process is not None:
                 process.join()

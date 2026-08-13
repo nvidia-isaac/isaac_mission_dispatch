@@ -12,3 +12,6 @@ venv/
 # Python packaging/build metadata
 *.egg-info/
 **/*.egg-info/
+
+# Release preparation output
+/release/

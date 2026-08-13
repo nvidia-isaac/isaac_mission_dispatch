@@ -30,10 +30,20 @@ DATABASE_CONTROLLER_PORT = 5022
 POSTGRES_DATABASE_PORT = 5432
 
 class TestPostgresDatabase(test_base.TestDatabase):
+    # Pre-initialize container handles so tearDownClass can always tear down whatever
+    # started, even if setUpClass fails partway (the shell-less containers no longer
+    # self-terminate when the caller dies, so leftovers would squat on ports).
+    database = None
+    postgres_database = None
+
     @classmethod
     def setUpClass(cls):
         if cls.has_process_crashed:
             raise ValueError("Can't run test due to previous failure")
+
+        # Reap any containers left behind by a previous test that was hard killed
+        # (e.g. a bazel test timeout / SIGKILL) and could not run its own cleanup.
+        cls.reap_orphaned_containers(cls)
 
         # Register signal handler
         signal.signal(signal.SIGUSR1, cls.catch_signal)

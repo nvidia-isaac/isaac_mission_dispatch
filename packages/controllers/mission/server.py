@@ -28,7 +28,7 @@ import requests  # type: ignore
 import socket
 import time
 import threading
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 from collections import OrderedDict
 
 import paho.mqtt.client as mqtt_client
@@ -220,7 +220,8 @@ class Robot:
                 self.mission_info("Sending mission action node "
                                   f"{mission_node.name}")
 
-            order.headerId = self._header_id
+            # order is always assigned above for the node types that reach here.
+            order.headerId = self._header_id  # pylint: disable=possibly-used-before-assignment
             self._header_id += 1
             order.timestamp = datetime.datetime.now().isoformat()
 
@@ -377,7 +378,19 @@ class Robot:
                 break
             if action_state.actionId in self._current_instant_actions.keys():
                 if action_state.actionStatus == types.VDA5050ActionStatus.FINISHED:
-                    # Update current instant aciton dict
+                    # Update current instant action dict
+                    finished_instant_actions.append(
+                        self._current_instant_actions.pop(action_state.actionId))
+                    self.mission_info(
+                        f"Finished instant action:\n {finished_instant_actions[-1]}")
+                updated_instant_action_ids.append(action_state.actionId)
+
+        # In VDA5050 >=3.0.0, instantActionStates is a separate field from actionStates
+        # But, for backwards compatibility, we will still allow instant actions in actionStates
+        for action_state in message.instantActionStates[::-1]:
+            if action_state.actionId in self._current_instant_actions.keys():
+                if action_state.actionStatus == types.VDA5050ActionStatus.FINISHED:
+                    # Update current instant action dict
                     finished_instant_actions.append(
                         self._current_instant_actions.pop(action_state.actionId))
                     self.mission_info(
@@ -403,14 +416,46 @@ class Robot:
                 self._robot_online_task.cancel()
             self._robot_online_task = \
                 asyncio.get_event_loop().create_task(self._check_robot_online())
-            if message.agvPosition:
+            if message.agvPosition and message.mobileRobotPosition:
+                self.warning(
+                    "Both agvPosition and mobileRobotPosition are set in the message. "
+                    f"Using fields for VDA5050 v{message.version}.")
+            # VDA5050 >=3.0.0
+            if message.version.startswith("3."):
+                if message.mobileRobotPosition is not None:
+                    self._robot_object.status.position_initialized = \
+                        message.mobileRobotPosition.localized
+                    self._robot_object.status.pose.x = message.mobileRobotPosition.x
+                    self._robot_object.status.pose.y = message.mobileRobotPosition.y
+                    self._robot_object.status.pose.theta = message.mobileRobotPosition.theta
+                    self._robot_object.status.pose.map_id = message.mobileRobotPosition.mapId
+            # VDA5050 <3.0.0
+            elif message.agvPosition is not None:
                 self._robot_object.status.position_initialized = \
                     message.agvPosition.positionInitialized
                 self._robot_object.status.pose.x = message.agvPosition.x
                 self._robot_object.status.pose.y = message.agvPosition.y
                 self._robot_object.status.pose.theta = message.agvPosition.theta
                 self._robot_object.status.pose.map_id = message.agvPosition.mapId
-            if message.batteryState:
+
+            if message.batteryState and message.powerSupply:
+                self.warning("Both batteryState and powerSupply are set in the message. "
+                             f"Using fields for VDA5050 v{message.version}.")
+            # VDA5050 >=3.0.0
+            if message.version.startswith("3."):
+                if message.powerSupply is not None:
+                    self._robot_object.status.battery_level = message.powerSupply.stateOfCharge
+                    if (message.powerSupply.charging and
+                            not self._robot_object.status.state.running):
+                        self._set_robot_state(
+                            robot_object.RobotStateV1.CHARGING)
+                        self._charging_mission_received = False
+                    elif (self._robot_object.status.state == robot_object.RobotStateV1.CHARGING and
+                          not message.powerSupply.charging):
+                        self._set_robot_state(
+                            robot_object.RobotStateV1.IDLE)
+            # VDA5050 <3.0.0
+            elif message.batteryState is not None:
                 self._robot_object.status.battery_level = message.batteryState.batteryCharge
                 if message.batteryState.charging and not self._robot_object.status.state.running:
                     self._set_robot_state(
@@ -420,6 +465,8 @@ class Robot:
                       not message.batteryState.charging):
                     self._set_robot_state(
                         robot_object.RobotStateV1.IDLE)
+
+
 
             if self._robot_server.mission_ctrl_url:
                 request_map = (not self._robot_object.status.pose.map_id
@@ -562,7 +609,14 @@ class Robot:
 
     async def _on_client_factsheet(self, message: types.VDA5050Factsheet):
         if self._robot_object is not None:
-            self._robot_object.status.factsheet.agv_class = message.typeSpecification.agvClass
+            if message.typeSpecification.agvClass and message.typeSpecification.mobileRobotClass:
+                self.warning("Both agvClass and mobileRobotClass are set in the factsheet. "
+                             "Falling back to agvClass.")
+            if message.typeSpecification.agvClass:
+                self._robot_object.status.factsheet.agv_class = message.typeSpecification.agvClass
+            elif message.typeSpecification.mobileRobotClass:
+                self._robot_object.status.factsheet.agv_class = \
+                    message.typeSpecification.mobileRobotClass
             self._robot_object.status.factsheet.speed_max = message.physicalParameters.speedMax
 
             self._database.update_status(self._robot_object)
@@ -1010,7 +1064,9 @@ class RobotServer:
 
     def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str],
                          username: Optional[str], password: Optional[str]) -> mqtt_client.Client:
-        client = mqtt_client.Client(transport=transport)
+        client = mqtt_client.Client(
+            mqtt_client.CallbackAPIVersion.VERSION1,
+            transport=cast(Literal["tcp", "websockets", "unix"], transport))
         if transport == "websockets" and ws_path is not None:
             client.ws_set_options(path=ws_path)
         if username and password:

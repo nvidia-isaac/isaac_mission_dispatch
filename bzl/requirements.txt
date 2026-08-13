@@ -1,12 +1,13 @@
 # Top-level dependencies
 pydantic==2.12.5
-paho-mqtt==1.6.1
-Pillow==10.3.0
-psycopg[binary,pool]==3.0.15
-psycopg-binary==3.0.15
+paho-mqtt==2.1.0
+Pillow==11.3.0
+psycopg[binary,pool]==3.2.9
+psycopg-binary==3.2.9
 psycopg-pool==3.2.7
 pyyaml==6.0.3
 fastapi==0.120.1
+starlette==0.49.1
 uvicorn==0.34.3
 charset-normalizer==3.3.2
 requests==2.32.5
@@ -14,4 +15,4 @@ mcp==1.26.0
 py_trees==2.1.6
 websockets==12.0
 opencv-python==4.12.0.88
-starlette==0.49.1
+

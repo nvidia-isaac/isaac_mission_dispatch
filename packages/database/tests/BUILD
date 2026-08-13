@@ -47,5 +47,6 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
 )

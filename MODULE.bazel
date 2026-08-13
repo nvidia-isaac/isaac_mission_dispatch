@@ -7,6 +7,7 @@
 
 module(name = "com_nvidia_isaac_mission_dispatch", version = "1.0")
 
+
 # Core build rules
 bazel_dep(name = "rules_cc", version = "0.1.1")
 bazel_dep(name = "rules_python", version = "1.6.1")
@@ -24,9 +25,9 @@ single_version_override(
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 python.toolchain(
     configure_coverage_tool = True,
-    python_version = "3.10",
+    python_version = "3.13",
 )
-use_repo(python, "python_3_10", "python_versions")
+use_repo(python, "python_3_13", "python_versions")
 
 # OCI (container) image dependencies
 oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
@@ -34,10 +35,10 @@ oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 # Base images for microservices
 oci.pull(
     name = "python",
-    image = "nvcr.io/nvidia/ai-workbench/python-basic:1.0.9",
+    image = "nvcr.io/nvidia/distroless/python:3.13-v4.0.8",
     platforms = [
         "linux/amd64",
-        "linux/arm64",
+        "linux/arm64/v8",
     ],
 )
 oci.pull(
@@ -45,7 +46,7 @@ oci.pull(
     image = "ubuntu:22.04",
     platforms = [
         "linux/amd64",
-        "linux/arm64",
+        "linux/arm64/v8",
     ],
 )
 
@@ -76,22 +77,22 @@ use_repo(
     "postgres_database_base_linux_arm64_v8",
     "python",
     "python_linux_amd64",
-    "python_linux_arm64",
+    "python_linux_arm64_v8",
     "ubuntu",
     "ubuntu_linux_amd64",
-    "ubuntu_linux_arm64",
+    "ubuntu_linux_arm64_v8",
 )
 
 # Python dependencies from requirements files
 pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
 pip.parse(
     hub_name = "python_third_party",
-    python_version = "3.10",
+    python_version = "3.13",
     requirements_lock = "//bzl:requirements_lock.txt",
 )
 pip.parse(
     hub_name = "python_third_party_linting",
-    python_version = "3.10",
+    python_version = "3.13",
     requirements_lock = "//bzl:requirements_linting_lock.txt",
 )
 use_repo(pip, "python_third_party", "python_third_party_linting")

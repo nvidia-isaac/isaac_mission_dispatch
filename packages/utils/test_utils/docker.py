@@ -26,19 +26,6 @@ import uuid
 from typing import List, Tuple, Union
 from urllib.parse import urlparse
 
-# Top level bash script to run as init process (PID 1) in each docker container to make sure that
-# the docker container exits when the calling python process exits
-SH_TEMPLATE = """
-EXIT_CODE_FILE=$(mktemp)
-cleanup() {
-    EXIT_CODE=$(cat $EXIT_CODE_FILE)
-    exit $EXIT_CODE
-}
-trap cleanup INT
-( COMMAND ; echo $? > $EXIT_CODE_FILE ; kill -s INT $$ ) &
-read _
-"""
-
 # How often to poll to see if a container is running
 CONTAINER_CHECK_PERIOD = 0.1
 
@@ -78,30 +65,17 @@ def get_container_ip(name: str) -> str:
         return "127.0.0.1"
     return ip_address
 
-
-def _image_id_after_load(manifest: list) -> str:
-    """
-    Resolve the image ID to use after loading. Prefer the ID Docker assigned to
-    the repo tag (the image we just loaded); fall back to the manifest config
-    digest if the tag is not found. This avoids mismatches when the manifest
-    digest and the image Docker reports differ (e.g. different paths, platform).
-    """
-    repotags = manifest[0].get("RepoTags") or []
-    for tag in repotags:
-        result = subprocess.run(
-            ["docker", "inspect", "-f", "{{.Id}}", tag],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.decode("utf-8").strip()
-    # Fallback: use config digest from manifest
-    return "sha256:" + manifest[0]["Config"].split("/")[-1]
-
 def run_docker_target(bazel_target: str, args: Union[List[str], None] = None,
                       docker_args: Union[List[str], None] = None,
                       start_timeout: float = 120,
-                      delay: int = 0) -> Tuple[subprocess.Popen, str]:
+                      delay: int = 0,
+                      name: Union[str, None] = None) -> Tuple[subprocess.Popen, str]:
+    """Load a bazel image bundle and run it as a container.
+
+    The container runs with the image's own entrypoint (no shell wrapper), so it
+    works with shell-less base images such as nvidia/distroless/python. The caller is
+    responsible for stopping the container (by name) when done; see TestContext.close.
+    """
     # Set default arguments
     if args is None:
         args = []
@@ -121,35 +95,40 @@ def run_docker_target(bazel_target: str, args: Union[List[str], None] = None,
         manifest = json.load(f)
     if not manifest or "Config" not in manifest[0]:
         raise ValueError(f"Invalid manifest contents in {bundle_manifest}")
-    # Derive image config hash from manifest entry
-    config_name = manifest[0]["Config"].split("/")[-1]
-    if config_name.startswith("sha256:"):
-        config_name = config_name[len("sha256:"):]
-    if config_name.endswith(".json"):
-        config_name = config_name[:-5]
-    image_hash = _image_id_after_load(manifest)
+    # Prefer the repo tag assigned by docker load; config digests are not
+    # reliably inspectable as image IDs on modern Docker.
+    repo_tags = manifest[0].get("RepoTags") or []
+    if repo_tags:
+        image_ref = repo_tags[0]
+    else:
+        config_name = manifest[0]["Config"].split("/")[-1]
+        if config_name.startswith("sha256:"):
+            config_name = config_name[len("sha256:"):]
+        if config_name.endswith(".json"):
+            config_name = config_name[:-5]
+        image_ref = f"sha256:{config_name}"
 
-    # Get the entrypoint command
-    result = subprocess.run(["docker", "inspect", "-f", "{{.Config.Entrypoint}}", image_hash],
-                            stdout=subprocess.PIPE, check=True).stdout.decode("utf-8")
-    args = result[1:-2].split(" ") + args
+    # Optionally delay the container start (used to test start ordering). Done here in
+    # Python rather than via a shell "sleep" so no shell is required in the image.
     if delay != 0:
-        args = ["sleep", str(delay), ";"] + args
+        time.sleep(delay)
 
-    # Run a the container inside a special bash script that will exit if
-    # the calling process dies, so the container will always exit
-    name = f"bazel-test-{str(uuid.uuid4())}"
-    script = SH_TEMPLATE.replace("COMMAND", " ".join(args))
-    docker_cmd = ["docker", "run", "-i", "--rm", "--entrypoint", "sh", "--name", name]
+    # Run the container with the image's own entrypoint; args are appended as CMD.
+    if name is None:
+        name = f"bazel-test-{str(uuid.uuid4())}"
+    docker_cmd = ["docker", "run", "--rm", "--name", name]
     if docker_args is not None:
         docker_cmd.extend(docker_args)
-    docker_cmd.extend([image_hash, "-c", script])
+    docker_cmd.append(image_ref)
+    docker_cmd.extend(args)
     print(" ".join(docker_cmd), flush=True)
-    process = subprocess.Popen(docker_cmd, stdin=subprocess.PIPE) # pylint: disable=consider-using-with
+    process = subprocess.Popen(docker_cmd) # pylint: disable=consider-using-with
     try:
         wait_for_container(name, timeout=start_timeout)
         address = get_container_ip(name).strip()
     except Exception:
         process.kill()
+        subprocess.run(["docker", "rm", "-f", name], # pylint: disable=subprocess-run-check
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         raise
     return process, address

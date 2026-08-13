@@ -106,9 +106,9 @@ class BoundingBoxViewer:
         self.bboxes = []
         self.selected_bbox = None  # To track the selected bounding box
 
-        self.mission_dispatch_uri = args.mission_dispatch_uri
-        self.robot_ws_uri = args.robot_ws_uri
-        self.image_topic = args.image_topic
+        self.mission_dispatch_uri = self.args.mission_dispatch_uri
+        self.robot_ws_uri = self.args.robot_ws_uri
+        self.image_topic = self.args.image_topic
 
     def encoding_to_dtype_with_channels(self, encoding):
         if encoding not in ["bgr8", "rgb8"]:
@@ -154,9 +154,10 @@ class BoundingBoxViewer:
         success = False
         # Wait for detection results
         while True:
+            mission_name = result["name"]
             mission = self.make_request_with_logs(
                 "get",
-                f"{self.mission_dispatch_uri}/mission/{result['name']}",
+                f"{self.mission_dispatch_uri}/mission/{mission_name}",
                 "Failed to get mission status",
                 "Get mission status")
             if mission["status"]["state"] == "COMPLETED":
@@ -273,7 +274,8 @@ class BoundingBoxViewer:
             # Check if click is within bounding box
             if x1 <= x <= x2 and y1 <= y <= y2:
                 self.selected_bbox = bbox
-                print(f"Selected object {bbox['object_id']}")
+                object_id = bbox["object_id"]
+                print(f"Selected object {object_id}")
                 clicked = True
                 break
 

@@ -27,7 +27,7 @@ import logging
 import re
 import socket
 import time
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 import paho.mqtt.client as mqtt_client
 import pydantic.v1 as pydantic
@@ -122,7 +122,7 @@ class CancelOrderInstantActionServer(ActionObject):
         self.action_id = ""
         super().__init__(types.VDA5050InstantActionType.CANCEL_ORDER)
 
-    def update_status(self, status):
+    def update_status(self, status):  # type: ignore[override]
         self._status = status
 
     def set_action_id(self, action_id: str):
@@ -296,7 +296,8 @@ class RobotInit:
                  failure_period: int = 0, battery: float = 0.0,
                  manufacturer: str = "", serial_number: str = "",
                  fail_as_warning=False,
-                 robot_type: VDA5050AgvClass = VDA5050AgvClass.CARRIER):
+                 robot_type: VDA5050AgvClass = VDA5050AgvClass.CARRIER,
+                 vda5050_version: str = "2.0.0"):
         self.name = name
         self.x = x
         self.y = y
@@ -308,6 +309,7 @@ class RobotInit:
         self.serial_number = serial_number
         self.fail_as_warning = fail_as_warning
         self.robot_type = robot_type
+        self.vda5050_version = vda5050_version
 
     def __str__(self) -> str:
         # Always include all fields up to robot_type, using empty strings as placeholders
@@ -322,6 +324,7 @@ class RobotInit:
             self.manufacturer,
             self.serial_number,
             self.robot_type.value,
+            self.vda5050_version,
         ]
         return ",".join(str(param) for param in params)
 
@@ -336,39 +339,73 @@ class Robot:
         self.logger = logging.getLogger(LOGGING_NAME)
         self.name = init.name
         self.order: Optional[types.VDA5050Order] = None
-        self.state = types.VDA5050State(
-            headerId=0,
-            timestamp="",
-            manufacturer=init.manufacturer,
-            serialNumber=init.serial_number,
-            orderId="",
-            orderUpdateId=0,
-            lastNodeId="",
-            lastNodeSequenceId=0,
-            nodeStates=[],
-            edgeStates=[],
-            agvPosition=types.VDA5050AgvPosition(
-                x=init.x, y=init.y, theta=init.theta, mapId=init.map_id
-            ),
-            actionStates=[],
-            batteryState=types.VDA5050BatteryState(
-                batteryCharge=init.battery,
-                batteryVoltage=None,
-                batteryHealth=None,
-                charging=False,
-                reach=None,
-            ),
-            safetyState=types.VDA5050SafetyStatus(
-                eStop=types.VDA5050EStop.NONE, fieldViolation=False
-            ),
-            velocity=types.VDA5050Velocity(vx=0.0, vy=0.0, omega=0.0),
-        )
+        if init.vda5050_version != "3.0.0":
+            self.state = types.VDA5050State(
+                headerId=0,
+                version=init.vda5050_version,
+                timestamp="",
+                manufacturer=init.manufacturer,
+                serialNumber=init.serial_number,
+                orderId="",
+                orderUpdateId=0,
+                lastNodeId="",
+                lastNodeSequenceId=0,
+                nodeStates=[],
+                edgeStates=[],
+                agvPosition=types.VDA5050AgvPosition(
+                    positionInitialized=True,
+                    x=init.x, y=init.y, theta=init.theta, mapId=init.map_id
+                ),
+                actionStates=[],
+                batteryState=types.VDA5050BatteryState(
+                    batteryCharge=init.battery,
+                    batteryVoltage=None,
+                    batteryHealth=None,
+                    charging=False,
+                    reach=None,
+                ),
+                safetyState=types.VDA5050SafetyStatus(
+                    eStop=types.VDA5050EStop.NONE, fieldViolation=False
+                ),
+                velocity=types.VDA5050Velocity(vx=0.0, vy=0.0, omega=0.0),
+            )
+        else:
+            self.state = types.VDA5050State(
+                headerId=0,
+                version=init.vda5050_version,
+                timestamp="",
+                manufacturer=init.manufacturer,
+                serialNumber=init.serial_number,
+                orderId="",
+                orderUpdateId=0,
+                lastNodeId="",
+                lastNodeSequenceId=0,
+                nodeStates=[],
+                edgeStates=[],
+                mobileRobotPosition=types.VDA5050MobileRobotPosition(
+                    localized=True,
+                    x=init.x, y=init.y, theta=init.theta, mapId=init.map_id
+                ),
+                actionStates=[],
+                powerSupply=types.VDA5050PowerSupply(
+                    stateOfCharge=init.battery,
+                    batteryVoltage=None,
+                    batteryHealth=None,
+                    charging=False,
+                    range=None,
+                ),
+                safetyState=types.VDA5050SafetyStatus(
+                    eStop=types.VDA5050EStop.NONE, fieldViolation=False
+                ),
+                velocity=types.VDA5050Velocity(vx=0.0, vy=0.0, omega=0.0),
+            )
         self.visualization = types.VDA5050Visualization(
             headerId=0,
             timestamp="",
             manufacturer=init.manufacturer,
             serialNumber=init.serial_number,
             agvPosition=types.VDA5050AgvPosition(
+                positionInitialized=True,
                 x=init.x, y=init.y, theta=init.theta, mapId=init.map_id
             ),
             velocity=types.VDA5050Velocity(vx=0.0, vy=0.0, omega=0.0),
@@ -448,40 +485,46 @@ class Robot:
         )
 
     def move(self, target_node: types.VDA5050Node):
+        position: Optional[types.VDA5050AgvPosition | types.VDA5050MobileRobotPosition] = None
+        if self.state.agvPosition is not None:
+            position = self.state.agvPosition
+        elif self.state.mobileRobotPosition is not None:
+            position = self.state.mobileRobotPosition
+
         if target_node.nodePosition is not None and \
-            self.state.agvPosition is not None and \
+            position is not None and \
                 self.visualization.velocity is not None:
             # Are we still moving in the X direction?
-            if abs(target_node.nodePosition.x - self.state.agvPosition.x) >= DISTANCE_THRESHOLD:
-                direction = 1 if target_node.nodePosition.x > self.state.agvPosition.x else -1
-                distance = min(abs(self.state.agvPosition.x - target_node.nodePosition.x),
+            if abs(target_node.nodePosition.x - position.x) >= DISTANCE_THRESHOLD:
+                direction = 1 if target_node.nodePosition.x > position.x else -1
+                distance = min(abs(position.x - target_node.nodePosition.x),
                                self.speed * self.tick_period)
-                self.state.agvPosition.x += direction * distance
+                position.x += direction * distance
                 self.visualization.velocity.vx = self.speed
                 return True
             else:
                 self.visualization.velocity.vx = 0.0
 
             # Are we still moving in the Y direction?
-            if abs(target_node.nodePosition.y - self.state.agvPosition.y) >= DISTANCE_THRESHOLD:
-                direction = 1 if target_node.nodePosition.y > self.state.agvPosition.y else -1
-                distance = min(abs(self.state.agvPosition.y - target_node.nodePosition.y),
+            if abs(target_node.nodePosition.y - position.y) >= DISTANCE_THRESHOLD:
+                direction = 1 if target_node.nodePosition.y > position.y else -1
+                distance = min(abs(position.y - target_node.nodePosition.y),
                                self.speed * self.tick_period)
-                self.state.agvPosition.y += direction * distance
+                position.y += direction * distance
                 self.visualization.velocity.vy = self.speed
                 return True
             else:
                 self.visualization.velocity.vy = 0.0
 
             # Are we still moving in the theta direction?
-            if abs(target_node.nodePosition.theta - self.state.agvPosition.theta) > 0.01:
-                if target_node.nodePosition.theta > self.state.agvPosition.theta:
+            if abs(target_node.nodePosition.theta - position.theta) > 0.01:
+                if target_node.nodePosition.theta > position.theta:
                     direction = 1
                 else:
                     direction = -1
-                delta = min(abs(self.state.agvPosition.theta - target_node.nodePosition.theta),
+                delta = min(abs(position.theta - target_node.nodePosition.theta),
                             self.speed * self.tick_period)
-                self.state.agvPosition.theta += direction * delta
+                position.theta += direction * delta
                 self.visualization.velocity.omega = self.speed
                 return True
             else:
@@ -651,7 +694,6 @@ class Robot:
         self.state.orderUpdateId = self.order.orderUpdateId
         self.state.headerId = self.order.headerId
         self.state.timestamp = datetime.datetime.now().isoformat()
-        self.state.version = self.order.version
 
         # If this is a new order, reset all the node states & edge states
         if new_order:
@@ -678,15 +720,19 @@ class Robot:
 
     def send_instant_action(self, instant_actions: types.VDA5050InstantActions):
         self.logger.info("Got an instant action")
+        if self.state.version.startswith("3."):
+            instant_action_states = self.state.instantActionStates
+        else:
+            instant_action_states = self.state.actionStates
         current_action_ids = [
-            action_state.actionId for action_state in self.state.actionStates]
+            action_state.actionId for action_state in instant_action_states]
         for action in instant_actions.instantActions:
             # Don't append any existing instant actions
             if action.actionId in current_action_ids:
                 continue
 
-            self.state.actionStates += [types.VDA5050ActionState(actionId=action.actionId,
-                                                                 actionType=action.actionType)]
+            instant_action_states += [types.VDA5050ActionState(actionId=action.actionId,
+                                                               actionType=action.actionType)]
             if action.actionType == types.VDA5050InstantActionType.CANCEL_ORDER:
                 self._cancel_order_action_server.set_action_id(action.actionId)
                 self._cancel_order_action_server.update_status(
@@ -696,13 +742,13 @@ class Robot:
 
             elif action.actionType == types.NVInstantActionType.START_TELEOP:
                 self.pause_order = True
-                self.state.actionStates[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
+                instant_action_states[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
                 self.publish_state()
                 self.logger.info("Finished %s Teleop", action.actionType)
 
             elif action.actionType == types.NVInstantActionType.STOP_TELEOP:
                 self.pause_order = False
-                self.state.actionStates[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
+                instant_action_states[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
                 self.publish_state()
                 self.logger.info("Finished %s Teleop", action.actionType)
 
@@ -721,6 +767,9 @@ class Robot:
                 self.factsheet.physicalParameters.speedMax = 0 if \
                     self.robot_type == VDA5050AgvClass.MANIPULATOR else 1
                 self.publish_factsheet()
+                instant_action_states[-1].actionStatus = types.VDA5050ActionStatus.FINISHED
+                self.publish_state()
+                self.logger.info("Finished %s Factsheet Request", action.actionType)
 
 
 def robot_parser(spec: str) -> RobotInit:
@@ -738,8 +787,11 @@ def robot_parser(spec: str) -> RobotInit:
         robot_type = VDA5050AgvClass(params[9].upper())
     else:
         robot_type = VDA5050AgvClass.CARRIER
-
-    if len(params) not in [3, 4, 5, 6, 7, 8, 9, 10]:
+    if len(params) > 10:
+        vda5050_version = params[10]
+    else:
+        vda5050_version = "2.0.0"
+    if len(params) not in [3, 4, 5, 6, 7, 8, 9, 10, 11]:
         raise argparse.ArgumentTypeError("""Robot spec must be of the form \"name,x,y\",
                                          \"name,x,y,theta\", \"name,x,y,theta,map_id\",
                                          \"name,x,y,theta,map_id,failure_period\", or
@@ -748,7 +800,9 @@ def robot_parser(spec: str) -> RobotInit:
                                          \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
                                          serial_number\", or
                                          \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
-                                         serial_number,robot_type\"""")
+                                         serial_number,robot_type\", or
+                                         \"name,x,y,theta,map_id,failure_period,battery,manufacturer,
+                                         serial_number,robot_type,vda5050_version\"\"""")
 
     return RobotInit(
         name=name,
@@ -760,7 +814,8 @@ def robot_parser(spec: str) -> RobotInit:
         battery=battery,
         manufacturer=manufacturer,
         serial_number=serial_number,
-        robot_type=robot_type
+        robot_type=robot_type,
+        vda5050_version=vda5050_version
     )
 
 
@@ -795,7 +850,9 @@ class Simulator:
     def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str],
                          username: Optional[str], password: Optional[str],
                          robot: RobotInit) -> mqtt_client.Client:
-        client = mqtt_client.Client(transport=transport)
+        client = mqtt_client.Client(
+            mqtt_client.CallbackAPIVersion.VERSION1,
+            transport=cast(Literal["tcp", "websockets", "unix"], transport))
         # Set the last will message with retain flag
         last_will_message = types.VDA5050Connection(
             headerId=1,

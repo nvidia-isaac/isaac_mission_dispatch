@@ -183,7 +183,8 @@ class TestMissions(unittest.TestCase):
         """Validate charging state transition."""
         robot = simulator.RobotInit("test01", 0, 0, battery=10)
         # Create MQTT Client to simulate messages from robot
-        client = mqtt_client.Client(transport=test_context.MQTT_TRANSPORT)
+        client = mqtt_client.Client(mqtt_client.CallbackAPIVersion.VERSION1,
+                                    transport=test_context.MQTT_TRANSPORT)
         client.ws_set_options(path=test_context.MQTT_WS_PATH)
         with test_context.TestContext([robot]) as ctx:
             client.connect(ctx.mqtt_address, test_context.MQTT_PORT)
