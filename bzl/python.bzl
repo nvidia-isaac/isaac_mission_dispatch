@@ -27,6 +27,11 @@ load("@python_third_party_linting//:requirements.bzl", "requirement")
 load("@aspect_rules_py//py:defs.bzl", "py_binary", "py_image_layer", "py_library")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
 
+# OCI base is @python (nvidia/distroless/python). This interpreter is on PATH in
+# that image; keep in sync with the base image (see MODULE.bazel oci.pull name =
+# "python") and the pip/toolchain python_version.
+_PY_OCI_BASE_PYTHON = "/usr/local/bin/python3"
+
 def py_type_test(name, srcs, deps):
     """
     Create a mypy type checking test for Python sources.
@@ -92,7 +97,9 @@ def mission_dispatch_py_binary(**kwargs):
         **kwargs: Arguments for py_binary (name, srcs, deps, etc.)
     """
     name = kwargs["name"]
-    
+    # main.py that py_binary runs; default matches py_binary's own default.
+    main = kwargs.get("main", name + ".py")
+
     # Create the binary
     py_binary(**kwargs)
     
@@ -113,23 +120,64 @@ def mission_dispatch_py_binary(**kwargs):
         binary = name,
     )
 
-    # Determine package path for entrypoint
+    # Determine package path.
     # py_image_layer preserves workspace structure:
     # Binary at //packages/database:postgres -> /packages/database/postgres
     package_path = native.package_name()
     if package_path:
-        entrypoint = "/" + package_path + "/" + name
+        bin_path = "/" + package_path + "/" + name
+        runfiles_main = "_main/{}/{}".format(package_path, main)
         repo_tag = package_path.replace("/", "-") + "-" + name + ":latest"
     else:
-        entrypoint = "/" + name
+        bin_path = "/" + name
+        runfiles_main = "_main/{}".format(main)
         repo_tag = name + ":latest"
+
+    runfiles_dir = bin_path + ".runfiles"
+
+    # The distroless base has no shell, so the py_binary bootstrap (which execs the
+    # hermetic interpreter via /bin/sh) cannot run. Instead run main.py directly with
+    # the base image's Python via a small launcher that reconstructs sys.path from the
+    # runfiles tree (workspace root + every .../site-packages), mirroring what the
+    # bootstrap would have exported. See bzl/oci_runfiles_launcher.py.
+    native.genrule(
+        name = name + "_oci_launcher_layer",
+        srcs = ["@com_nvidia_isaac_mission_dispatch//bzl:oci_runfiles_launcher.py"],
+        outs = [name + "_oci_launcher_layer.tar.gz"],
+        cmd = (
+            "mkdir -p $$(dirname $@)/oci_launch_staging/app && " +
+            "cp $(location @com_nvidia_isaac_mission_dispatch//bzl:oci_runfiles_launcher.py) $$(dirname $@)/oci_launch_staging/app/oci_runfiles_launcher.py && " +
+            "tar -C $$(dirname $@)/oci_launch_staging -czf $@ ."
+        ),
+    )
+
+    # oci_image accepts entrypoint as a list or a file label; emit a newline-separated
+    # exec-form entrypoint: base python, launcher, then the runfiles main.py.
+    native.genrule(
+        name = name + "_oci_entrypoint",
+        outs = [name + "_oci_entrypoint.txt"],
+        cmd = (
+            "printf '%s\\n%s\\n%s\\n' '{py}' '/app/oci_runfiles_launcher.py' " +
+            "'{runfiles_dir}/{runfiles_main}' > $@"
+        ).format(
+            py = _PY_OCI_BASE_PYTHON,
+            runfiles_dir = runfiles_dir,
+            runfiles_main = runfiles_main,
+        ),
+    )
 
     # Create OCI image
     oci_image(
         name = name + "-img",
-        base = "@python",  # Python 3.10 base image from MODULE.bazel
-        entrypoint = [entrypoint],
-        tars = [name + "-image-layer"],
+        base = "@python",  # nvidia/distroless/python base image from MODULE.bazel
+        entrypoint = name + "_oci_entrypoint",
+        env = {
+            "RUNFILES_DIR": runfiles_dir,
+        },
+        tars = [
+            name + "-image-layer",
+            name + "_oci_launcher_layer",
+        ],
     )
 
     # Create loadable image bundle for local testing

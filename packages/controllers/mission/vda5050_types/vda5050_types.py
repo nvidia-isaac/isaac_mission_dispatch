@@ -263,12 +263,24 @@ class VDA5050Edge(pydantic.BaseModel):
             endNodeId=f"{mission_id}-n{mission_node_id}-s{sequence + 1}")
 
 
+# VDA5050 <3.0.0
 class VDA5050AgvPosition(pydantic.BaseModel):
-    positionInitialized: bool = True
+    positionInitialized: bool = False
     x: float
     y: float
     theta: float
     mapId: str = ""
+    deviationRange: float = 0.0
+
+
+# VDA5050 >=3.0.0
+class VDA5050MobileRobotPosition(pydantic.BaseModel):
+    localized: bool = False
+    x: float
+    y: float
+    theta: float
+    mapId: str = ""
+    localizationScore: float = 0.0
     deviationRange: float = 0.0
 
 
@@ -437,12 +449,22 @@ class VDA5050Order(pydantic.BaseModel):
             edges=[])
 
 
+# VDA5050 <3.0.0
 class VDA5050BatteryState(pydantic.BaseModel):
     batteryCharge: float
     batteryVoltage: Optional[float]
     batteryHealth: Optional[int]
     charging: bool
     reach: Optional[int]
+
+
+# VDA5050 >=3.0.0
+class VDA5050PowerSupply(pydantic.BaseModel):
+    stateOfCharge: float
+    batteryVoltage: Optional[float]
+    batteryHealth: Optional[int]
+    charging: bool
+    range: Optional[float]
 
 
 class VDA5050BoundingBoxReference(pydantic.BaseModel):
@@ -507,9 +529,8 @@ class VDA5050State(pydantic.BaseModel):
     nodeStates: List[VDA5050NodeState]
     edgeStates: List[VDA5050EdgeState]
     actionStates: List[VDA5050ActionState] = []
-    batteryState: Optional[VDA5050BatteryState]
+    instantActionStates: List[VDA5050ActionState] = []
     driving: bool = False
-    agvPosition: Optional[VDA5050AgvPosition]
     errors: List[VDA5050Error] = []
     information: Optional[List[VDA5050Info]] = []
     distanceSinceLastNode: Optional[float] = 0.0
@@ -519,7 +540,13 @@ class VDA5050State(pydantic.BaseModel):
     paused: Optional[bool] = False
     safetyState: VDA5050SafetyStatus
     velocity: Optional[VDA5050Velocity]
-    zoneSetId: Optional[str] = ""
+
+    # VDA5050 <3.0.0
+    batteryState: Optional[VDA5050BatteryState] = None
+    agvPosition: Optional[VDA5050AgvPosition] = None
+    # VDA5050 >=3.0.0
+    mobileRobotPosition: Optional[VDA5050MobileRobotPosition] = None
+    powerSupply: Optional[VDA5050PowerSupply] = None
 
     @pydantic.validator("operatingMode", pre=True)
     def default_operating_mode(cls, v):
@@ -527,16 +554,42 @@ class VDA5050State(pydantic.BaseModel):
             return VDA5050OperatingMode.AUTOMATIC
         return v
 
+    @pydantic.root_validator(pre=True)
+    def default_legacy_vda5050_fields(cls, values):
+        if values.get("batteryState") is None and values.get("powerSupply") is None:
+            values["batteryState"] = VDA5050BatteryState(
+                batteryCharge=0.0,
+                charging=False
+            )
+        if values.get("agvPosition") is None and values.get("mobileRobotPosition") is None:
+            values["agvPosition"] = VDA5050AgvPosition(
+                x=0.0,
+                y=0.0,
+                theta=0.0,
+                mapId=""
+            )
+        return values
+
 
 class VDA5050TypeSpecification(pydantic.BaseModel):
     """Describes general properties of a robot"""
     seriesName: Optional[str]
     seriesDescription: Optional[str]
     agvKinematic: Optional[str]
-    agvClass: str = VDA5050AgvClass.CARRIER.value
+    agvClass: Optional[str]
+    mobileRobotClass: Optional[str]
     maxLoadMass: Optional[float]
     localizationTypes: Optional[List[str]]
     navigationTypes: Optional[List[str]]
+
+    @pydantic.root_validator
+    def validate_agv_or_mobile_robot_class(cls, values):
+        has_agv_class = bool(values.get("agvClass"))
+        has_mobile_robot_class = bool(values.get("mobileRobotClass"))
+        if has_agv_class == has_mobile_robot_class:
+            raise ValueError("Exactly one of agvClass or mobileRobotClass must be defined")
+        return values
+
 
 
 class VDA5050PhysicalParameters(pydantic.BaseModel):
@@ -583,7 +636,7 @@ class VDA5050Factsheet(pydantic.BaseModel):
     version: str = "2.0.0"
     manufacturer: str = ""
     serialNumber: str = ""
-    typeSpecification: VDA5050TypeSpecification = VDA5050TypeSpecification()
+    typeSpecification: VDA5050TypeSpecification = VDA5050TypeSpecification(agvClass="UNKNOWN")
     physicalParameters: VDA5050PhysicalParameters = VDA5050PhysicalParameters()
     protocolLimits: Optional[VDA5050ProtocolLimits]
     protocolFeatures: Optional[VDA5050ProtocolFeatures]

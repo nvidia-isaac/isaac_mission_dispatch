@@ -15,7 +15,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-load("@python_versions//3.10:defs.bzl", compile_pip_requirements = "compile_pip_requirements")
+load("@python_versions//3.13:defs.bzl", compile_pip_requirements = "compile_pip_requirements")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -32,6 +32,7 @@ compile_pip_requirements(
 )
 
 exports_files([
+    "oci_runfiles_launcher.py",
     "pylintrc",
     "pytype.py",
     "pylint.py",

@@ -1,3 +1,5 @@
 # Top-level dependencies
-mypy==1.8.0
-pylint==2.17.7
+# pylint/mypy must be new enough to parse Python 3.13 syntax (PEP 695 type aliases);
+# pylint < 3.3 / mypy < 1.13 crash on the 3.13 AST.
+mypy==1.13.0
+pylint==3.3.7

@@ -107,41 +107,50 @@ class PostgresWatcher(common.Watcher):
                         self._logger.warning("Object from DB: %s", obj.name)
                         yield obj
 
-                    # Now handle all notifications
-                    async for notification in self._connection.notifies():
-                        publisher, obj_name, lifecycle = notification.payload.split(
-                            " ", 2)
+                    # Now handle all notifications.
+                    # In psycopg 3.2, notifies() holds the connection lock for the
+                    # whole lifetime of the generator, so running a query while
+                    # iterating it on the same connection deadlocks. Drain one batch
+                    # at a time (stop_after=1) so the generator returns and releases
+                    # the lock before we query the object's current row.
+                    while True:
+                        notifications = [notification async for notification
+                                         in self._connection.notifies(stop_after=1)]
+                        for notification in notifications:
+                            publisher, obj_name, lifecycle = notification.payload.split(
+                                " ", 2)
 
-                        # Ignore notifications caused by our changes
-                        if self._publisher_id == uuid.UUID(publisher):
-                            continue
+                            # Ignore notifications caused by our changes
+                            if self._publisher_id == uuid.UUID(publisher):
+                                continue
 
-                        query = f"SELECT spec, status FROM {self._object_class.table_name()} \
-                            WHERE name = %s LIMIT 1;"
-                        await cursor.execute(query, [obj_name])
-                        values_notify = await cursor.fetchone()
-                        if values_notify is None:
-                            # If the object has been deleted, propagate an empty object
-                            # Return default spec if the object is deleted
-                            t_obj_class = self._object_class
-                            t_default_spec = t_obj_class.default_spec()
+                            query = f"SELECT spec, status FROM {self._object_class.table_name()} \
+                                WHERE name = %s LIMIT 1;"
+                            await cursor.execute(query, [obj_name])
+                            values_notify = await cursor.fetchone()
+                            if values_notify is None:
+                                # If the object has been deleted, propagate an empty object
+                                # Return default spec if the object is deleted
+                                t_obj_class = self._object_class
+                                t_default_spec = t_obj_class.default_spec()
+                                self._logger.debug(
+                                    "values_notify None: for %s", obj_name)
+                                pop_obj = self._object_class(name=obj_name,
+                                                             lifecycle=\
+                                                             objects.ObjectLifecycleV1.DELETED,
+                                                             status={}, **t_default_spec)
+                            else:
+                                spec, status = values_notify
+                                pop_obj = self._object_class(name=obj_name,
+                                                             lifecycle=\
+                                                             objects.ObjectLifecycleV1[lifecycle],
+                                                             status=status, **spec)
                             self._logger.debug(
-                                "values_notify None: for %s", obj_name)
-                            pop_obj = self._object_class(name=obj_name,
-                                                         lifecycle=\
-                                                         objects.ObjectLifecycleV1.DELETED,
-                                                         status={}, **t_default_spec)
-                        else:
-                            spec, status = values_notify
-                            pop_obj = self._object_class(name=obj_name,
-                                                         lifecycle=\
-                                                         objects.ObjectLifecycleV1[lifecycle],
-                                                         status=status, **spec)
-                        self._logger.debug(
-                            "Object from notification: %s", pop_obj.name)
-                        yield pop_obj
+                                "Object from notification: %s", pop_obj.name)
+                            yield pop_obj
 
-            except Exception:  # pylint: disable=broad-except
+            except Exception as watch_err:  # pylint: disable=broad-except
+                self._logger.warning("watch() exception: %r", watch_err)
                 self._connection = await self._get_connection()
                 continue
 

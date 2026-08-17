@@ -69,6 +69,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -85,6 +86,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -101,6 +103,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -118,6 +121,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -134,6 +138,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -150,6 +155,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -166,6 +172,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -182,6 +189,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -198,6 +206,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -214,6 +223,7 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True
@@ -231,7 +241,8 @@ py_test(
         requirement("pydantic")
     ],
     tags = [
-        "exclusive"
+        "exclusive",
+        "supports-graceful-termination",
     ],
     size = "medium",
     flaky = True
@@ -251,7 +262,26 @@ py_test(
     tags = [
         "local",
         "exclusive",
+        "supports-graceful-termination",
     ],
     size = "large",
     flaky = True,
+)
+
+py_test(
+    name = "vda5050_compatibility_test",
+    srcs = [
+        "vda5050_compatibility_test.py"
+    ],
+    deps = [
+        ":test_context",
+        ":mission_examples",
+    ],
+    tags = [
+        "local",
+        "exclusive",
+        "supports-graceful-termination",
+    ],
+    size = "large",
+    flaky = True
 )

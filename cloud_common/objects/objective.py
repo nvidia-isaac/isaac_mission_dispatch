@@ -63,6 +63,7 @@ class ObjectiveNodeType(str, enum.Enum):
     OBJ_DETECTION = "OBJ_DETECTION"
     APRILTAG_DETECTION = "APRILTAG_DETECTION"
     SLEEP = "SLEEP"
+    ACTION = "ACTION"
 
     # DECORATOR types
     RETRY = "RETRY"
@@ -79,7 +80,7 @@ class ObjectiveNodeType(str, enum.Enum):
         return self in (
             self.NAVIGATION, self.CHARGING, self.UNDOCK, self.PICKPLACE,
             self.OBJ_DETECTION, self.APRILTAG_DETECTION, self.SLEEP,
-            self.MULTI_OBJECT_PICKPLACE
+            self.MULTI_OBJECT_PICKPLACE, self.ACTION
         )
 
     @property

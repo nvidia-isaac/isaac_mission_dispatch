@@ -4,7 +4,7 @@
 Isaac Mission Dispatch is a cloud service that enables the communication between edge robots and other cloud services responsible for managing a fleet of robots. The communication between Mission Dispatch and robots is designed per [VDA5050 protocol](https://github.com/VDA5050/VDA5050/blob/main/VDA5050_EN.md) and uses [MQTT](https://mqtt.org/), as MQTT is the industry standard for a highly efficient, scalable protocol for connecting devices over the internet. VDA 5050 is an open standard for communication between fleets of AGVs/AMRs and a central fleet service. 
 
 <div align="center"><img src="docs/resources/MD.png" width="650px"/></div>
-<div><i align = "center">Diagram highlighting this package. Mission Dispatch and Client in green. This simplified diagram of a fleet management system on the left is connected to a robot running ROS 2 on the right. References are provided to database and MQTT services. Mission Dispatch needs to be integrated with the fleet management system of preference. A matching ROS 2 <a href="https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client">Mission Client</a> is available for ROS 2 Humble or Jazzy; or use the <a href="https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector">VDA5050 connector</a> from OTTO Motors & InOrbit AI on ROS 2 Galactic with Mission Dispatch.</i></div>
+<div><i align = "center">Diagram highlighting this package. Mission Dispatch and Client in green. This simplified diagram of a fleet management system on the left is connected to a robot running ROS 2 on the right. References are provided to database and MQTT services. Mission Dispatch needs to be integrated with the fleet management system of preference. A matching ROS 2 <a href="https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_mission_client">Mission Client</a> is available for ROS 2 Humble; or use the <a href="https://github.com/inorbit-ai/ros_amr_interop/tree/galactic-devel/vda5050_connector">VDA5050 connector</a> from OTTO Motors & InOrbit AI on ROS 2 Galactic with Mission Dispatch.</i></div>
 <br>
 
 The Mission Dispatch system is composed of two main components:
@@ -62,11 +62,12 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
 
 ## Latest Update
 
-Update 2026-03   : Mission Dispatch MCP, VDA5050 2.2 map distribution updates, ARM64 support, bug fixes.
-
-Update 2023-10   : Addition of battery status, update/cancel missions, nodePosition, bug fixes.
-
-Update 2022-10-19: Initial release
+| Date    | Changes |
+|---------|---------|
+| 2026-08 | VDA5050 3.0 support, add generic action node. |
+| 2026-03 | Mission Dispatch MCP, VDA5050 2.2 map distribution updates, ARM64 support, bug fixes. |
+| 2023-10 | Addition of battery status, update/cancel missions, nodePosition, bug fixes. |
+| 2022-10 | Initial release. |
 
 ## Supported Platforms
 This package is designed and tested to be compatible with laptops or desktops with [Ubuntu 20.04+](https://releases.ubuntu.com/20.04/) for development, as well as cloud service providers (CSPs) and [EGX](https://www.nvidia.com/en-us/data-center/products/egx/) certified platforms for deployment. 
@@ -109,14 +110,12 @@ We provide three deployment options here for using Mission Dispatch services: de
 Download the repository:
 
 ```
-git clone https://github.com/isaac_amr_platform/mission_dispatch.git
+git clone --recurse-submodules https://github.com/isaac_amr_platform/mission_dispatch.git
 ```
 
 Continue here to run Mission Dispatch microservices directly on a computer, CSP, or EGX. Skip to section [Getting Started with Local Development](#getting-started-with-local-development) to develop services locally on your computer.
 
 An interactive documentation page that can be used to submit missions will be launched after the deployment. If you used the default parameters, this can be found at `http://localhost:5000/docs` or `http://<your_ip_address>:5000/docs`. 
-
-Note : When deploying with Docker containers from nvcr.io on an ARM64 machine, use `-arm64` instead of `-amd64` at the end of the image tag.
 ### Deploy with Official Docker Containers 
 1. Launch Dependencies.
 
@@ -156,10 +155,10 @@ Note : When deploying with Docker containers from nvcr.io on an ARM64 machine, u
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.3.0-amd64
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.6.0
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.3.0 --help
+    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.6.0 --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -167,7 +166,7 @@ Note : When deploying with Docker containers from nvcr.io on an ARM64 machine, u
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:4.3.0-amd64
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:4.6.0
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -178,7 +177,6 @@ To simplify the steps in the [Deploy with Official Docker Containers](#deploy-wi
 cd mission_dispatch/docker_compose
 docker compose -f mission_dispatch_services.yaml up
 # run `docker compose -f mission_dispatch_services.yaml down` if you want to bring down all the services.
-# run `docker compose -f mission_dispatch_services_arm64.yaml up` if you are on an ARM64 system
 ```
 
 ### Deploy with Kubernetes 
@@ -212,7 +210,7 @@ docker compose -f mission_dispatch_services.yaml up
 3. Test with Mission Simulator:
 
     ```
-    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:4.3.0-amd64 --robots carter_x,4,5 \
+    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:4.6.0 --robots carter_x,4,5 \
         --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
@@ -316,7 +314,7 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:4.3.0-amd64 --robots \
+docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:4.6.0 --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
@@ -690,7 +688,6 @@ The [vda5050_connector](https://github.com/inorbit-ai/ros_amr_interop/tree/galac
 
 ### Isaac ROS Troubleshooting
 Check [here](https://nvidia-isaac-ros.github.io/troubleshooting/index.html) for solutions to problems with Isaac ROS.
-
 
 ## Frequently Asked Questions
 * How is the issue of mission persistence exactly addressed?

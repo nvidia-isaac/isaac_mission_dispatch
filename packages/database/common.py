@@ -382,7 +382,10 @@ class WebServer:
         private_server = uvicorn.Server(uvicorn.Config(private_app, port=self._controller_port,
                                                        host=self._address,
                                                        access_log=self._access_log))
-        await asyncio.wait([public_server.serve(), private_server.serve()],
+        # asyncio.wait no longer accepts bare coroutines (removed in Python 3.11+);
+        # wrap them in tasks explicitly.
+        await asyncio.wait([asyncio.ensure_future(public_server.serve()),
+                            asyncio.ensure_future(private_server.serve())],
                            return_when=asyncio.FIRST_COMPLETED)
 
     def run(self):
