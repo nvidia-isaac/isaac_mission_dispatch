@@ -19,7 +19,7 @@ SPDX-License-Identifier: Apache-2.0
 
 from typing import Any, Dict, List
 
-import pydantic.v1 as pydantic
+import pydantic
 
 from cloud_common.objects import object
 from cloud_common.objects.common import Pose3D
@@ -75,7 +75,7 @@ class AprilTagResultsObjectV1(AprilTagResultsSpecV1, object.ApiObject):
 
     @classmethod
     def default_spec(cls) -> Dict:
-        return AprilTagResultsSpecV1().dict()  # type: ignore
+        return AprilTagResultsSpecV1().model_dump(mode="json")  # type: ignore
 
     @classmethod
     def get_query_params(cls) -> Any:

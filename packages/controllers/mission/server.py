@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 from collections import OrderedDict
 
 import paho.mqtt.client as mqtt_client
-import pydantic.v1 as pydantic
+import pydantic
 
 from packages.controllers.mission import behavior_tree
 import packages.controllers.mission.vda5050_types as types
@@ -174,7 +174,7 @@ class Robot:
             timestamp=datetime.datetime.now().isoformat(),
             instantActions=[instant_action])
         self._mqtt_client.publish(f"{self._mqtt_prefix}/{self._name}/instantActions",
-                                  instant_actions.json())
+                                  instant_actions.model_dump_json())
         self._header_id += 1
 
     async def _send_order(self):
@@ -226,7 +226,7 @@ class Robot:
             order.timestamp = datetime.datetime.now().isoformat()
 
             self._mqtt_client.publish(
-                f"{self._mqtt_prefix}/{self._name}/order", order.json())
+                f"{self._mqtt_prefix}/{self._name}/order", order.model_dump_json())
             self.set_mission_node_state(f"{mission_node.name}",
                                         mission_object.MissionStateV1.RUNNING)
 
@@ -773,7 +773,7 @@ class Robot:
         if self._current_behavior_tree is None or self._current_mission is None:
             return
         # Record the old status and store the new status
-        previous_mission_status = self._current_mission.status.copy(deep=True)
+        previous_mission_status = self._current_mission.status.model_copy(deep=True)
         # Update mission status
         self._current_behavior_tree.update()
         self._current_mission.status.current_node = self._current_behavior_tree.current_node.idx
@@ -797,12 +797,13 @@ class Robot:
             if finished_instant_action.actionType == types.NVInstantActionType.START_TELEOP:
                 self._set_robot_state(robot_object.RobotStateV1.TELEOP)
                 self.mission_info("Switch to teleop")
-            else:
+                return
+            if finished_instant_action.actionType == types.NVInstantActionType.STOP_TELEOP:
                 resume_robot_state = robot_object.RobotStateV1.ON_TASK \
                     if self._current_mission else robot_object.RobotStateV1.IDLE
                 self._set_robot_state(resume_robot_state)
                 self.mission_info("Stop teleop")
-            return
+                return
 
     def update_mission_state(self, message: types.VDA5050State,
                              finished_instant_actions: List):
@@ -1059,14 +1060,18 @@ class RobotServer:
                 self.warning(
                     f"Got message from unrecognized topic \"{msg.topic}\"")
                 return
-        except pydantic.ValidationError as e:
-            self.warning(f"Validation error from client message:\n{e.errors()}")
+        except (json.JSONDecodeError, UnicodeDecodeError) as err:
+            self.warning(f"Invalid JSON from client message: {err}")
+        except pydantic.ValidationError as err:
+            self.warning(f"Validation error from client message:\n{err.errors()}")
 
     def _connect_to_mqtt(self, host: str, port: int, transport: str, ws_path: Optional[str],
                          username: Optional[str], password: Optional[str]) -> mqtt_client.Client:
         client = mqtt_client.Client(
             mqtt_client.CallbackAPIVersion.VERSION1,
             transport=cast(Literal["tcp", "websockets", "unix"], transport))
+        # Keep the paho network loop alive if a future callback raises unexpectedly.
+        client.suppress_exceptions = True
         if transport == "websockets" and ws_path is not None:
             client.ws_set_options(path=ws_path)
         if username and password:

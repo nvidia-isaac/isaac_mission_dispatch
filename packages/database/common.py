@@ -19,12 +19,12 @@ SPDX-License-Identifier: Apache-2.0
 import abc
 import argparse
 import asyncio
-from typing import Any, AsyncGenerator, List, Optional
+from typing import Annotated, Any, AsyncGenerator, List, Optional
 import logging
 import uuid
 
 import fastapi
-import pydantic.v1 as pydantic
+import pydantic
 import uvicorn
 
 from cloud_common import objects
@@ -145,8 +145,7 @@ class WebServer:
                             "object will be given a name of the form "
                             "<prefix>-<random id> to ensure uniqueness.")
 
-            class Config:
-                extra = "forbid"
+            model_config = pydantic.ConfigDict(extra="forbid")
 
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
@@ -165,10 +164,10 @@ class WebServer:
     def _get_spec_update_class(self, object_class: objects.ApiObjectType):
         class Update(object_class.get_spec_class()):  # type: ignore
             """Defines parameters used to update an object's spec"""
-            class Config:
-                extra = "forbid"
+            model_config = pydantic.ConfigDict(extra="forbid")
 
-            @pydantic.root_validator(pre=True, skip_on_failure=True)
+            @pydantic.model_validator(mode="before")
+            @classmethod
             def check_for_status(cls, values):
                 if "status" in values:
                     raise common.ICSUsageError(
@@ -178,7 +177,7 @@ class WebServer:
                 return values
 
             def update_object(self, obj):
-                new_fields = self.dict()
+                new_fields = self.model_dump()
                 for key, value in new_fields.items():
                     setattr(obj, key, value)
 
@@ -188,10 +187,10 @@ class WebServer:
     def _get_status_update_class(self, object_class: objects.ApiObjectType):
         class Update(pydantic.BaseModel):
             """Defines parameters used to update an object's status"""
-            class Config:
-                extra = "forbid"
+            model_config = pydantic.ConfigDict(extra="forbid")
 
-            @pydantic.root_validator(pre=True, allow_reuse=True, skip_on_failure=True)
+            @pydantic.model_validator(mode="before")
+            @classmethod
             def check_for_spec(cls, values):
                 spec_keys = [key for key in values if key != "status"]
                 if spec_keys:
@@ -210,8 +209,9 @@ class WebServer:
         return Update
 
     def _build_lister(self, object_class: objects.ApiObjectType):
-        async def func(query_params:                                       # type: ignore
-                       object_class.get_query_params() = fastapi.Depends()):  # type: ignore
+        query_params_type = object_class.get_query_params()
+
+        async def func(query_params: Annotated[query_params_type, fastapi.Query()]):  # type: ignore
             return await self._database.list_objects(object_class, query_params)
         return func
 
@@ -220,7 +220,7 @@ class WebServer:
                        publisher_id: Optional[uuid.UUID] = None):
             if publisher_id is None:
                 publisher_id = uuid.uuid4()
-            obj = object_class(**obj.dict(), status={})
+            obj = object_class(**obj.model_dump(), status={})
             await self._database.create_object(obj, publisher_id)
             return obj
         return func
@@ -237,7 +237,7 @@ class WebServer:
 
             with await self._database.get_watcher(object_class, publisher_id) as watcher:
                 async for obj in watcher.watch():
-                    yield obj.json() + "\n"
+                    yield obj.model_dump_json() + "\n"
 
         async def func(publisher_id: Optional[uuid.UUID] = None):
             return fastapi.responses.StreamingResponse(watch(publisher_id))

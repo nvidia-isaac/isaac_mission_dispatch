@@ -19,7 +19,7 @@ SPDX-License-Identifier: Apache-2.0
 
 from typing import Any, Dict, List, Optional
 
-import pydantic.v1 as pydantic
+import pydantic
 
 from cloud_common.objects import object
 from cloud_common.objects.common import Pose3D
@@ -51,13 +51,11 @@ class DetectedObject(pydantic.BaseModel):
     object_id: int = 0
     class_id: str = ''
 
-    @pydantic.root_validator
-    def check_f1_f2(cls, values):
-        bbox_2d = values.get('bbox2d')
-        bbox_3d = values.get('bbox3d')
-        if bbox_2d is None and bbox_3d is None:
+    @pydantic.model_validator(mode="after")
+    def check_f1_f2(self):
+        if self.bbox2d is None and self.bbox3d is None:
             raise ValueError('Either bbox2d or bbox3d must be provided.')
-        return values
+        return self
 
 
 class DetectionResultsStatusV1(pydantic.BaseModel):
@@ -99,7 +97,7 @@ class DetectionResultsObjectV1(DetectionResultsSpecV1, object.ApiObject):
 
     @classmethod
     def default_spec(cls) -> Dict:
-        return DetectionResultsSpecV1().dict()  # type: ignore
+        return DetectionResultsSpecV1().model_dump(mode="json")  # type: ignore
 
     @classmethod
     def get_query_params(cls) -> Any:

@@ -35,7 +35,7 @@ oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
 # Base images for microservices
 oci.pull(
     name = "python",
-    image = "nvcr.io/nvidia/distroless/python:3.13-v4.0.8",
+    image = "nvcr.io/nvidia/distroless/python:3.13-v4.1.4",
     platforms = [
         "linux/amd64",
         "linux/arm64/v8",
@@ -46,7 +46,7 @@ oci.pull(
     image = "ubuntu:22.04",
     platforms = [
         "linux/amd64",
-        "linux/arm64/v8",
+        "linux/arm64",
     ],
 )
 
@@ -80,7 +80,7 @@ use_repo(
     "python_linux_arm64_v8",
     "ubuntu",
     "ubuntu_linux_amd64",
-    "ubuntu_linux_arm64_v8",
+    "ubuntu_linux_arm64",
 )
 
 # Python dependencies from requirements files
@@ -96,4 +96,3 @@ pip.parse(
     requirements_lock = "//bzl:requirements_linting_lock.txt",
 )
 use_repo(pip, "python_third_party", "python_third_party_linting")
-

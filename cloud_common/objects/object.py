@@ -22,7 +22,7 @@ import enum
 import uuid
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Type
 
-import pydantic.v1 as pydantic
+import pydantic
 
 # The number of characters to include in the short object ID
 SHORT_ID_LENGTH = 8
@@ -57,7 +57,7 @@ class ApiObject(pydantic.BaseModel, metaclass=abc.ABCMeta):
 
     @property
     def spec(self) -> Any:
-        return self.get_spec_class()(**self.dict())
+        return self.get_spec_class()(**self.model_dump())
 
     @classmethod
     @abc.abstractmethod

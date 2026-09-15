@@ -2,6 +2,7 @@ bazel-*
 __pycache__
 .vscode
 .cache/
+release/
 
 # Python virtual environments
 venv/
@@ -12,6 +13,3 @@ venv/
 # Python packaging/build metadata
 *.egg-info/
 **/*.egg-info/
-
-# Release preparation output
-/release/

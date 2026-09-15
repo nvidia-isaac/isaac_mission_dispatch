@@ -62,6 +62,73 @@ class Delay(NamedTuple):
     mission_simulator: int = 0
 
 
+def _state_value(state):
+    """Return a stable string value for enum and string states."""
+    return getattr(state, "value", state)
+
+
+def wait_for_robot_state(ctx, robot_name: str, target_state,
+                         timeout: float = 60.0):
+    """Poll until a robot reaches a state, failing instead of blocking forever."""
+    target = _state_value(target_state)
+    deadline = time.monotonic() + timeout
+    last_state = None
+    while time.monotonic() < deadline:
+        request_timeout = min(5.0, max(0.1, deadline - time.monotonic()))
+        try:
+            robot = ctx.db_client.get(
+                api_objects.RobotObjectV1, robot_name,
+                timeout=request_timeout)
+        except requests.Timeout:
+            continue
+        last_state = _state_value(robot.status.state)
+        if last_state == target:
+            return robot
+        time.sleep(0.2)
+    raise AssertionError(
+        f"Timed out after {timeout}s waiting for robot {robot_name} "
+        f"to reach {target}; last state was {last_state}")
+
+
+def wait_for_mission(ctx, mission_name: str, predicate,
+                     description: str, timeout: float = 60.0):
+    """Poll until a mission condition is met or fail on timeout/terminal state."""
+    deadline = time.monotonic() + timeout
+    last_mission = None
+    while time.monotonic() < deadline:
+        request_timeout = min(5.0, max(0.1, deadline - time.monotonic()))
+        try:
+            last_mission = ctx.db_client.get(
+                api_objects.MissionObjectV1, mission_name,
+                timeout=request_timeout)
+        except requests.Timeout:
+            continue
+        if predicate(last_mission):
+            return last_mission
+        if last_mission.status.state.done:
+            raise AssertionError(
+                f"Mission {mission_name} reached unexpected terminal state "
+                f"{last_mission.status.state} while waiting for {description}; "
+                f"failure reason: {last_mission.status.failure_reason}")
+        time.sleep(0.2)
+    last_status = last_mission.status if last_mission is not None else None
+    raise AssertionError(
+        f"Timed out after {timeout}s waiting for mission {mission_name} "
+        f"to reach {description}; last status was {last_status}")
+
+
+def wait_for_mission_state(ctx, mission_name: str, target_state,
+                           timeout: float = 60.0):
+    """Poll until a mission reaches a state, failing on timeout."""
+    target = _state_value(target_state)
+    return wait_for_mission(
+        ctx,
+        mission_name,
+        lambda mission: _state_value(mission.status.state) == target,
+        f"state {target}",
+        timeout)
+
+
 class TestContext:
     crashed_process = False
 
@@ -277,9 +344,11 @@ class TestContext:
                 process.join()
                 process.close()
 
-    def call_teleop_service(self, robot_name: str, teleop: robot_object.RobotTeleopActionV1):
+    def call_teleop_service(self, robot_name: str,
+                            teleop: robot_object.RobotTeleopActionV1):
         endpoint = self.md_url + f"/robot/{robot_name}/teleop"
-        response = requests.post(url=endpoint, params={"params": teleop.value})
+        response = requests.post(
+            url=endpoint, params={"params": teleop.value}, timeout=10)
         if response.status_code == 200:
             self.logger.info(f"Teleop {teleop.value} request sent")
         else:

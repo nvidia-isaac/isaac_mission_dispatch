@@ -13,7 +13,6 @@ test --test_env=AWS_SECRET_ACCESS_KEY
 test --test_env=AWS_REGION
 test --test_env=AWS_ENDPOINT_URL
 test --test_tmpdir=/tmp
-# test --sandbox_writable_path=/builds/isaac_amr_platform/mission_dispatch
 
 build --cxxopt='-std=c++17'
 build --remote_timeout=3600
@@ -32,4 +31,7 @@ build:clang_config --cpu=k8
 
 # Use the default Bazel C++ toolchain for host tools.
 build:clang_config --host_crosstool_top=@bazel_tools//tools/cpp:toolchain
+
+
+
 

@@ -17,9 +17,13 @@ limitations under the License.
 SPDX-License-Identifier: Apache-2.0
 """
 import time
+import types
 import unittest
+from unittest import mock
 
 from cloud_common import objects as api_objects
+from cloud_common.objects import robot as robot_object
+from packages.controllers.mission import server as mission_server
 from packages.controllers.mission.tests import client as simulator
 from cloud_common.objects import mission as mission_object
 from packages.controllers.mission.tests import test_context
@@ -111,6 +115,81 @@ class TestMissionServer(unittest.TestCase):
                     completed = True
                     break
             self.assertTrue(completed)
+
+
+class TestRobotStateUpdates(unittest.TestCase):
+
+    def setUp(self):
+        self.robot = mission_server.Robot.__new__(mission_server.Robot)
+        self.robot._current_mission = mock.sentinel.mission
+        self.robot._set_robot_state = mock.Mock()
+        self.robot.mission_info = mock.Mock()
+
+    @staticmethod
+    def action(action_type):
+        return types.SimpleNamespace(actionType=action_type)
+
+    def test_non_teleop_action_does_not_change_robot_state(self):
+        self.robot.update_robot_state([
+            self.action(
+                mission_server.types.VDA5050InstantActionType.FACTSHEET_REQUEST)
+        ])
+
+        self.robot._set_robot_state.assert_not_called()
+        self.robot.mission_info.assert_not_called()
+
+    def test_teleop_actions_change_robot_state(self):
+        actions = [
+            self.action(
+                mission_server.types.VDA5050InstantActionType.FACTSHEET_REQUEST),
+            self.action(mission_server.types.NVInstantActionType.START_TELEOP),
+        ]
+        self.robot.update_robot_state(actions)
+        self.robot._set_robot_state.assert_called_once_with(
+            robot_object.RobotStateV1.TELEOP)
+
+        self.robot._set_robot_state.reset_mock()
+        self.robot.update_robot_state([
+            self.action(mission_server.types.NVInstantActionType.STOP_TELEOP)
+        ])
+        self.robot._set_robot_state.assert_called_once_with(
+            robot_object.RobotStateV1.ON_TASK)
+
+
+class TestMqttPayloadValidation(unittest.TestCase):
+
+    def setUp(self):
+        self.robot_server = mission_server.RobotServer.__new__(
+            mission_server.RobotServer)
+        self.robot_server._mqtt_prefix = "uagv/v2/RobotCompany"
+        self.robot_server._mqtt_messages = mock.sentinel.message_queue
+        self.robot_server._enqueue = mock.Mock()
+        self.robot_server.info = mock.Mock()
+        self.robot_server.warning = mock.Mock()
+
+    def test_malformed_payloads_are_rejected_without_enqueueing(self):
+        topic = "uagv/v2/RobotCompany/robot/state"
+
+        for payload in (b'{"truncated"', b'\xff'):
+            with self.subTest(payload=payload):
+                message = types.SimpleNamespace(topic=topic, payload=payload)
+                self.robot_server._mqtt_on_message(None, None, message)
+
+        self.assertEqual(self.robot_server.warning.call_count, 2)
+        self.robot_server._enqueue.assert_not_called()
+
+    @mock.patch.object(mission_server.mqtt_client.Client, "connect")
+    def test_mqtt_client_suppresses_callback_exceptions(self, connect):
+        callback = mock.Mock(side_effect=RuntimeError("callback failed"))
+        self.robot_server._mqtt_on_message = callback
+        connected_client = self.robot_server._connect_to_mqtt(
+            "localhost", 1883, "tcp", None, None, None)
+
+        message = types.SimpleNamespace(topic="robot/state")
+        connected_client._handle_on_message(message)
+
+        connect.assert_called_once_with("localhost", 1883)
+        callback.assert_called_once_with(connected_client, None, message)
 
 
 if __name__ == "__main__":

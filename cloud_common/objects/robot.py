@@ -20,9 +20,7 @@ import datetime
 import enum
 from typing import Any, Dict, List, Optional
 
-import pydantic.v1 as pydantic
-from fastapi import Query
-from pydantic.v1 import Field
+import pydantic
 
 from cloud_common.objects import common, object
 
@@ -86,8 +84,9 @@ class RobotTypeIdentifierV1(pydantic.BaseModel):
     agv_class: str = VDA5050AgvClass.CARRIER.value
     speed_max: float = -1
 
-    @pydantic.validator("agv_class", pre=True, always=True)
-    def _validate_agv_class(cls, value):  # pylint: disable=no-self-argument
+    @pydantic.field_validator("agv_class", mode="before")
+    @classmethod
+    def _validate_agv_class(cls, value):
         """Validate that the provided AGV class string is a valid VDA5050AgvClass value.
 
         This validator ensures that the agv_class field contains a valid string value
@@ -145,6 +144,10 @@ class RobotStatusV1(pydantic.BaseModel):
 
 class RobotSpecV1(pydantic.BaseModel):
     """Specifies constant properties about the robot, such as its name."""
+    # Pydantic 1 serialized timedelta values as seconds. Keep that public API and
+    # database representation instead of Pydantic 2's ISO-8601 default.
+    model_config = pydantic.ConfigDict(ser_json_timedelta="float")
+
     labels: List[str] = pydantic.Field(
         [], description="A list of labels to assign to the robot, used to identify certain groups \
                         of robots.")
@@ -160,13 +163,13 @@ class RobotSpecV1(pydantic.BaseModel):
 
 class RobotQueryParamsV1(pydantic.BaseModel):
     """Specifies the supported query parameters allowed for robots"""
-    min_battery: Optional[float]
-    max_battery: Optional[float]
-    state: Optional[RobotStateV1]
-    online: Optional[bool]
-    position_initialized: Optional[bool]
-    names: Optional[List[str]] = Field(Query(None))
-    robot_type: Optional[VDA5050AgvClass]
+    min_battery: Optional[float] = None
+    max_battery: Optional[float] = None
+    state: Optional[RobotStateV1] = None
+    online: Optional[bool] = None
+    position_initialized: Optional[bool] = None
+    names: Optional[List[str]] = None
+    robot_type: Optional[VDA5050AgvClass] = None
 
 
 class RobotObjectV1(RobotSpecV1, object.ApiObject):
@@ -187,7 +190,7 @@ class RobotObjectV1(RobotSpecV1, object.ApiObject):
 
     @classmethod
     def default_spec(cls) -> Dict:
-        return RobotSpecV1().dict()  # type: ignore
+        return RobotSpecV1().model_dump(mode="json")  # type: ignore
 
     @classmethod
     def get_query_params(cls) -> Any:

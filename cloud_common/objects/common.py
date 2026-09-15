@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import enum
 
-import pydantic.v1 as pydantic
+import pydantic
 
 # Tell pylint to ignore the invalid names. We must use fields that are specified
 # by VDA5050.

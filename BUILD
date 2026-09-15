@@ -31,7 +31,6 @@ mission_dispatch_py_library(
     "cloud_common/objects/objective.py"],
     data = ["cloud_common/objects/__init__.py"],
     deps = [
-        requirement("fastapi"),
         requirement("pydantic"),
         requirement("psycopg")
     ],

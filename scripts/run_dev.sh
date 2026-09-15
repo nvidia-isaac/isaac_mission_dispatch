@@ -26,8 +26,9 @@ if [ ! -d "$HOME/.cache/bazel" ]; then
   mkdir -p "$HOME/.cache/bazel"
 fi
 
-#Create folder $HOME/.cache/pip-tools if it does not already exist
+# Create pip-tools cache directory if it doesn't exist
 if [ ! -d "$HOME/.cache/pip-tools" ]; then
+  # Folder does not exist, so create it
   mkdir -p "$HOME/.cache/pip-tools"
 fi
 
