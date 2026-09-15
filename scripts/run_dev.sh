@@ -26,6 +26,12 @@ if [ ! -d "$HOME/.cache/bazel" ]; then
   mkdir -p "$HOME/.cache/bazel"
 fi
 
+# Create pip-tools cache directory if it doesn't exist
+if [ ! -d "$HOME/.cache/pip-tools" ]; then
+  # Folder does not exist, so create it
+  mkdir -p "$HOME/.cache/pip-tools"
+fi
+
 docker run -it --rm \
     --network host \
     --workdir "${ROOT}" \
@@ -38,6 +44,7 @@ docker run -it --rm \
     -v "$HOME/.docker/buildx:$HOME/.docker/buildx" \
     -v "/etc/timezone:/etc/timezone:ro" \
     -v "$HOME/.cache/bazel:$HOME/.cache/bazel" \
+    -v "$HOME/.cache/pip-tools:$HOME/.cache/pip-tools" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -u $(id -u) \
     --group-add $(getent group docker | cut -d: -f3) \
