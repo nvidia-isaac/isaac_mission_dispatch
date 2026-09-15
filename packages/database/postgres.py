@@ -18,15 +18,16 @@ SPDX-License-Identifier: Apache-2.0
 """
 import argparse
 import datetime
+import json
 import logging
 import sys
 import time
-from typing import Any, AsyncGenerator, Optional, Union
+from typing import Any, AsyncGenerator, Optional, Tuple, Union
 import uuid
 import enum
 
 import fastapi
-import pydantic.v1 as pydantic
+import pydantic
 import psycopg
 from psycopg import sql
 
@@ -40,6 +41,26 @@ from cloud_common.objects.mission import MissionObjectV1
 # How long to wait in seconds before trying to reconnect to the Postgres database
 POSTGRES_RECONNECT_PERIOD = 0.5
 WATCHER_POSTGRES_RECONNECT_PERIOD = 0.1
+
+
+def _encode_notification(publisher_id: uuid.UUID, name: str, lifecycle: str) -> str:
+    return json.dumps({"publisher_id": str(publisher_id),
+                       "name": name,
+                       "lifecycle": lifecycle})
+
+
+def _decode_notification(payload: str) -> Tuple[str, str, str]:
+    try:
+        notification = json.loads(payload)
+        publisher = notification["publisher_id"]
+        obj_name = notification["name"]
+        lifecycle = notification["lifecycle"]
+    except (json.JSONDecodeError, KeyError, TypeError) as err:
+        raise ValueError("Invalid database notification payload") from err
+    if not all(isinstance(value, str)
+               for value in (publisher, obj_name, lifecycle)):
+        raise ValueError("Invalid database notification field type")
+    return publisher, obj_name, lifecycle
 
 
 async def initialize_database(connection: psycopg.AsyncConnection):
@@ -117,8 +138,8 @@ class PostgresWatcher(common.Watcher):
                         notifications = [notification async for notification
                                          in self._connection.notifies(stop_after=1)]
                         for notification in notifications:
-                            publisher, obj_name, lifecycle = notification.payload.split(
-                                " ", 2)
+                            publisher, obj_name, lifecycle = _decode_notification(
+                                notification.payload)
 
                             # Ignore notifications caused by our changes
                             if self._publisher_id == uuid.UUID(publisher):
@@ -187,7 +208,7 @@ class PostgresDatabase(common.Database):
 
     async def _notify(self, cursor, table_name: str, name: str,
                       lifecycle: str, publisher_id: uuid.UUID):
-        message = f"{str(publisher_id)} {name} {lifecycle}"
+        message = _encode_notification(publisher_id, name, lifecycle)
         await cursor.execute(
             f"NOTIFY {table_name}, {sql.Literal(message).as_string(cursor)};")
 
@@ -268,11 +289,12 @@ class PostgresDatabase(common.Database):
                 self._logger.info("Create object: %s:%s",
                                   obj.table_name(), obj.name)
                 self._logger.info("   %s:%s:%s", obj.lifecycle.name,
-                                  obj.spec.json(), obj.status.json())
+                                  obj.spec.model_dump_json(), obj.status.model_dump_json())
                 query = f"INSERT INTO {obj.table_name()} (name, lifecycle, spec, status) " \
                         f"VALUES (%s, %s, %s, %s);"
                 await cursor.execute(query, [obj.name, obj.lifecycle.name,
-                                             obj.spec.json(), obj.status.json()])
+                                             obj.spec.model_dump_json(),
+                                             obj.status.model_dump_json()])
                 await self._notify(cursor, obj.table_name(), obj.name,
                                    obj.lifecycle.name, publisher_id)
                 await connection.commit()
@@ -294,7 +316,7 @@ class PostgresDatabase(common.Database):
             async with connection.cursor() as cursor:
                 query = f"UPDATE {object_class.table_name()} " \
                         f"SET spec = %s WHERE name = %s RETURNING *;"
-                await cursor.execute(query, [spec.json(), name])
+                await cursor.execute(query, [spec.model_dump_json(), name])
                 await self._commit_update(cursor, object_class.table_name(), name, publisher_id)
                 await connection.commit()
         except psycopg.OperationalError as err:
@@ -309,7 +331,7 @@ class PostgresDatabase(common.Database):
             async with connection.cursor() as cursor:
                 query = f"UPDATE {object_class.table_name()} " \
                         "SET status = %s WHERE name = %s RETURNING *;"
-                await cursor.execute(query, [status.json(), name])
+                await cursor.execute(query, [status.model_dump_json(), name])
                 await self._commit_update(cursor, object_class.table_name(), name, publisher_id)
                 await connection.commit()
         except psycopg.OperationalError as err:

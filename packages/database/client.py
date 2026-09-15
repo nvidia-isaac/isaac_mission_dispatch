@@ -41,7 +41,7 @@ class DatabaseClient:
 
     def create(self, obj: objects.ApiObject):
         url = f"{self._url}/{obj.get_alias()}"
-        fields = json.loads(obj.spec.json())
+        fields = json.loads(obj.spec.model_dump_json())
         fields["name"] = obj.name
         response = requests.post(url, json=fields, params={
                                  "publisher_id": self._publisher_id})
@@ -49,13 +49,13 @@ class DatabaseClient:
 
     def update_spec(self, obj: objects.ApiObject):
         url = f"{self._url}/{obj.get_alias()}/{obj.name}"
-        response = requests.put(url, json=json.loads(obj.spec.json()),
+        response = requests.put(url, json=json.loads(obj.spec.model_dump_json()),
                                 params={"publisher_id": self._publisher_id})
         common.handle_response(response)
 
     def update_status(self, obj: objects.ApiObject):
         url = f"{self._url}/{obj.get_alias()}/{obj.name}"
-        response = requests.put(url, json={"status": json.loads(obj.status.json())},
+        response = requests.put(url, json={"status": json.loads(obj.status.model_dump_json())},
                                 params={"publisher_id": self._publisher_id})
         common.handle_response(response)
 
@@ -65,9 +65,10 @@ class DatabaseClient:
         common.handle_response(response)
         return [object_type(**obj) for obj in json.loads(response.text)]
 
-    def get(self, object_type: Any, name: str) -> objects.ApiObject:
+    def get(self, object_type: Any, name: str,
+            timeout: Optional[float] = None) -> objects.ApiObject:
         url = f"{self._url}/{object_type.get_alias()}/{name}"
-        response = requests.get(url)
+        response = requests.get(url, timeout=timeout)
         common.handle_response(response)
         return object_type(**json.loads(response.text))
 

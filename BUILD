@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -31,7 +31,6 @@ mission_dispatch_py_library(
     "cloud_common/objects/objective.py"],
     data = ["cloud_common/objects/__init__.py"],
     deps = [
-        requirement("fastapi"),
         requirement("pydantic"),
         requirement("psycopg")
     ],

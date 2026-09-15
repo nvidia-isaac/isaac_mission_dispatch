@@ -30,7 +30,7 @@ import time
 from typing import Dict, List, Literal, Optional, Union, cast
 
 import paho.mqtt.client as mqtt_client
-import pydantic.v1 as pydantic
+import pydantic
 
 import packages.controllers.mission.vda5050_types as types
 from cloud_common.objects.detection_results import DetectedObject, DetectedObjectBoundingBox2D, DetectedObjectCenter2D
@@ -226,7 +226,7 @@ class DetectionActionServer(ActionObject):
                     center=DetectedObjectCenter2D(x=100.0, y=100.0, theta=0.0)
                 )
             )
-            self._result_description = json.dumps([mock_detected_object.dict()])
+            self._result_description = json.dumps([mock_detected_object.model_dump()])
 
         return self._status
 
@@ -261,7 +261,7 @@ class AprilTagActionServer(ActionObject):
                 frame_id="camera_link",
                 timestamp=time.time()
             )
-            self._result_description = json.dumps([mock_apriltag.dict()])
+            self._result_description = json.dumps([mock_apriltag.model_dump()])
 
         return self._status
 
@@ -469,19 +469,19 @@ class Robot:
         self.state.headerId = self._get_next_header_id()
         self.state.timestamp = datetime.datetime.now().isoformat()
         self.client.publish(
-            f"{self._mqtt_prefix}/{self.name}/state", self.state.json())
+            f"{self._mqtt_prefix}/{self.name}/state", self.state.model_dump_json())
 
     def publish_factsheet(self):
         self.factsheet.headerId = self._get_next_header_id()
         self.factsheet.timestamp = datetime.datetime.now().isoformat()
         self.client.publish(
-            f"{self._mqtt_prefix}/{self.name}/factsheet", self.factsheet.json())
+            f"{self._mqtt_prefix}/{self.name}/factsheet", self.factsheet.model_dump_json())
 
     def publish_visualization(self):
         self.visualization.headerId = self._get_next_header_id()
         self.visualization.timestamp = datetime.datetime.now().isoformat()
         self.client.publish(
-            f"{self._mqtt_prefix}/{self.name}/visualization", self.visualization.json()
+            f"{self._mqtt_prefix}/{self.name}/visualization", self.visualization.model_dump_json()
         )
 
     def move(self, target_node: types.VDA5050Node):
@@ -863,7 +863,7 @@ class Simulator:
         )
         client.will_set(
             f"{self.mqtt_prefix}/{robot.name}/connection",
-            payload=last_will_message.json(), qos=2, retain=True
+            payload=last_will_message.model_dump_json(), qos=2, retain=True
         )
         if transport == "websockets" and ws_path is not None:
             client.ws_set_options(path=ws_path)
@@ -885,7 +885,7 @@ class Simulator:
                     connectionState=types.VDA5050ConnectionState.ONLINE,
                 )
                 client.publish(f"{self.mqtt_prefix}/{robot.name}/connection",
-                               payload=connect_message.json())
+                               payload=connect_message.model_dump_json())
             except (ConnectionRefusedError, ConnectionResetError):
                 self.logger.info(
                     "Failed to connect to mqtt broker, retrying in %s s", MQTT_RECONNECT_PERIOD)
@@ -918,7 +918,7 @@ class Simulator:
         try:
             func = getattr(self.robots[robot], func_name)
             func(topic_type(**json.loads(msg.payload)))
-        except (json.decoder.JSONDecodeError, pydantic.error_wrappers.ValidationError) as error:
+        except (json.decoder.JSONDecodeError, pydantic.ValidationError) as error:
             self.logger.warning("Ignoring badly formed message: %s", error)
 
     def _mqtt_on_message(self, client, userdata, msg):

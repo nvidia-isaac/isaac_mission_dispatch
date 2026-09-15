@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any, Dict, Union, Optional
 
 import enum
-import pydantic.v1 as pydantic
+import pydantic
 
 from cloud_common.objects import object
 
@@ -99,13 +99,15 @@ class ObjectiveCompositeNode(ObjectiveNode):
     """Represents an Objective Composite Node in a behavior tree"""
     children: list[Union[ObjectiveCompositeNode, ObjectiveBehaviorNode, ObjectiveDecoratorNode]]
 
-    @pydantic.validator("node_type")
+    @pydantic.field_validator("node_type")
+    @classmethod
     def node_type_validator(cls, value):
         if not value.is_composite:
             raise ValueError("Invalid node_type for a Composite node.")
         return value
 
-    @pydantic.validator("children")
+    @pydantic.field_validator("children")
+    @classmethod
     def children_validator(cls, value):
         if not isinstance(value, list):
             raise TypeError("Children must be a list.")
@@ -122,7 +124,8 @@ class ObjectiveBehaviorNode(ObjectiveNode):
     # NEW: Output specification {"vocabulary_key": "context_variable_name"}
     outputs: Optional[Dict[str, str]] = None
 
-    @pydantic.validator("node_type")
+    @pydantic.field_validator("node_type")
+    @classmethod
     def node_type_validator(cls, value):
         if not value.is_behavior:
             raise ValueError("Invalid node_type for a Behavior node.")
@@ -134,16 +137,17 @@ class ObjectiveDecoratorNode(ObjectiveNode):
     parameters: dict
     child: Union[ObjectiveCompositeNode, ObjectiveBehaviorNode, ObjectiveDecoratorNode]
 
-    @pydantic.validator("node_type")
+    @pydantic.field_validator("node_type")
+    @classmethod
     def node_type_validator(cls, value):
         if not value.is_decorator:
             raise ValueError("Invalid node_type for a Decorator node.")
         return value
 
 
-ObjectiveCompositeNode.update_forward_refs()
-ObjectiveBehaviorNode.update_forward_refs()
-ObjectiveDecoratorNode.update_forward_refs()
+ObjectiveCompositeNode.model_rebuild()
+ObjectiveBehaviorNode.model_rebuild()
+ObjectiveDecoratorNode.model_rebuild()
 
 
 class ObjectiveStatusV1(pydantic.BaseModel):
@@ -183,7 +187,7 @@ class ObjectiveV1(ObjectiveSpecV1, object.ApiObject):
 
     @classmethod
     def default_spec(cls) -> Dict:
-        return ObjectiveSpecV1().dict()  # type: ignore
+        return ObjectiveSpecV1().model_dump(mode="json")  # type: ignore
 
     @classmethod
     def get_query_params(cls) -> Any:

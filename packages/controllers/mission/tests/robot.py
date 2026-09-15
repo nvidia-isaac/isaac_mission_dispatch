@@ -222,7 +222,7 @@ class TestMissions(unittest.TestCase):
                 safetyState=types.VDA5050SafetyStatus(
                     eStop=types.VDA5050EStop.NONE, fieldViolation=False
                 ))
-            client.publish(topic, message.json())
+            client.publish(topic, message.model_dump_json())
             time.sleep(0.5)
             start_time = time.time()
             for update in watcher:
@@ -234,7 +234,7 @@ class TestMissions(unittest.TestCase):
             # Publish charging=False message
             # State should transition to IDLE
             message.batteryState.charging = False
-            client.publish(topic, message.json())
+            client.publish(topic, message.model_dump_json())
             time.sleep(0.5)
             start_time = time.time()
             for update in watcher:
@@ -253,22 +253,20 @@ class TestMissions(unittest.TestCase):
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            ctx.db_client.create(
-                test_context.mission_object_generator("test01", MISSION_TREE_1))
+            mission = test_context.mission_object_generator(
+                "test01", MISSION_TREE_1)
+            ctx.db_client.create(mission)
 
             # Make sure the robot is in teleop mode
-            watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
-            for update in watcher:
-                if update.status.state == robot_object.RobotStateV1.TELEOP:
-                    break
+            test_context.wait_for_robot_state(
+                ctx, "test01", robot_object.RobotStateV1.TELEOP)
             # Simulate teleop
             time.sleep(5)
             # Stop teleop
             ctx.call_teleop_service(
                 robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
-            for update in ctx.db_client.watch(api_objects.MissionObjectV1):
-                if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    break
+            test_context.wait_for_mission_state(
+                ctx, mission.name, mission_object.MissionStateV1.COMPLETED)
 
             # Make sure the robot is at the last position in the list of waypoints
             robot_status = ctx.db_client.get(
@@ -287,30 +285,24 @@ class TestMissions(unittest.TestCase):
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            ctx.db_client.create(test_context.mission_from_waypoints(
-                "test01", SCENARIO1_WAYPOINTS))
+            mission = test_context.mission_from_waypoints(
+                "test01", SCENARIO1_WAYPOINTS)
+            ctx.db_client.create(mission)
 
-            for mission in ctx.db_client.watch(api_objects.MissionObjectV1):
-                if mission.status.state == mission_object.MissionStateV1.RUNNING:
-                    break
-            # Simulate teleop
-            watcher = ctx.db_client.watch(api_objects.RobotObjectV1)
+            test_context.wait_for_mission_state(
+                ctx, mission.name, mission_object.MissionStateV1.RUNNING)
             # Start teleop
             ctx.call_teleop_service(
                 robot_name="test01", teleop=robot_object.RobotTeleopActionV1.START)
-            time.sleep(5)
-            for update in watcher:
-                if update.status.state == robot_object.RobotStateV1.TELEOP:
-                    break
+            test_context.wait_for_robot_state(
+                ctx, "test01", robot_object.RobotStateV1.TELEOP)
             # Stop teleop
             ctx.call_teleop_service(
                 robot_name="test01", teleop=robot_object.RobotTeleopActionV1.STOP)
-            for update in watcher:
-                if update.status.state == robot_object.RobotStateV1.ON_TASK:
-                    break
-            for update in ctx.db_client.watch(api_objects.MissionObjectV1):
-                if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    break
+            test_context.wait_for_robot_state(
+                ctx, "test01", robot_object.RobotStateV1.ON_TASK)
+            test_context.wait_for_mission_state(
+                ctx, mission.name, mission_object.MissionStateV1.COMPLETED)
 
 
 if __name__ == "__main__":

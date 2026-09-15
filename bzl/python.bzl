@@ -114,7 +114,10 @@ def mission_dispatch_py_binary(**kwargs):
         srcs = kwargs.get("srcs", []),
     )
 
-    # Create image layer from binary
+    # Create image layers from binary. py_image_layer also generates an
+    # "interpreter" layer for the Bazel toolchain, but the OCI image runs with
+    # the interpreter from @python. Do not include the unused toolchain runtime:
+    # it duplicates Python in the image and expands the vulnerability surface.
     py_image_layer(
         name = name + "-image-layer",
         binary = name,
@@ -175,7 +178,8 @@ def mission_dispatch_py_binary(**kwargs):
             "RUNFILES_DIR": runfiles_dir,
         },
         tars = [
-            name + "-image-layer",
+            name + "-image-layer_packages",
+            name + "-image-layer_default",
             name + "_oci_launcher_layer",
         ],
     )

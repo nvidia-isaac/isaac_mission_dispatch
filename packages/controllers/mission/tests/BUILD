@@ -185,6 +185,7 @@ py_test(
     ],
     deps = [
         ":test_context",
+        "//packages/controllers/mission:mission",
     ],
     tags = [
         "local",
@@ -284,4 +285,15 @@ py_test(
     ],
     size = "large",
     flaky = True
+)
+
+py_test(
+    name = "pydantic_v2_regression_test",
+    srcs = [
+        "pydantic_v2_regression_test.py",
+    ],
+    deps = [
+        "//:cloud_common_objects",
+        "//packages/controllers/mission/vda5050_types",
+    ],
 )

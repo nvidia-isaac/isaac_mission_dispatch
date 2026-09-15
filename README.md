@@ -64,6 +64,7 @@ There are other approaches to distributing tasks to and monitoring a fleet of ro
 
 | Date    | Changes |
 |---------|---------|
+| 2026-09 | Various bug fixes and security improvements. |
 | 2026-08 | VDA5050 3.0 support, add generic action node. |
 | 2026-03 | Mission Dispatch MCP, VDA5050 2.2 map distribution updates, ARM64 support, bug fixes. |
 | 2023-10 | Addition of battery status, update/cancel missions, nodePosition, bug fixes. |
@@ -155,10 +156,10 @@ An interactive documentation page that can be used to submit missions will be la
     Start the API and database server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.6.0
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-database:5.0.0
 
     # To see what configuration options are, run
-    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:4.6.0 --help
+    # docker run -it --network host nvcr.io/nvidia/isaac/mission-database:5.0.0 --help
     # For example, if you want to change the port for the user API from the default 5000 to 5002, add `--port 5002` configuration option in the command.
     ```
 3. Launch the Mission Dispatch microservice:
@@ -166,7 +167,7 @@ An interactive documentation page that can be used to submit missions will be la
     Start the mission dispatch server with the official docker container.
 
     ```
-    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:4.6.0
+    docker run -it --network host nvcr.io/nvidia/isaac/mission-dispatch:5.0.0
     # To see what configuration options are, add --help option after the command.
     ```
 ### Deploy with Docker Compose 
@@ -191,7 +192,7 @@ docker compose -f mission_dispatch_services.yaml up
     ```
     b. Install the chart for the Postgres database and pass in the primary arguments:
     ```
-    helm install postgres-db bitnamilegacy/postgresql \
+    helm install postgres-db bitnami/postgresql \
         --set containerPorts.postgresql=5432 \
         --set auth.postgresPassword=postgres \
         --set auth.database=mission \
@@ -210,7 +211,7 @@ docker compose -f mission_dispatch_services.yaml up
 3. Test with Mission Simulator:
 
     ```
-    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:4.6.0 --robots carter_x,4,5 \
+    docker run -it --network host  nvcr.io/nvidia/isaac/mission-simulator:5.0.0 --robots carter_x,4,5 \
         --mqtt_host <your_host_doamin_name> --mqtt_ws_path /mqtt --mqtt_transport websockets --mqtt_port 80 
     ```
 
@@ -314,7 +315,7 @@ bazel run packages/controllers/mission/tests:client -- --robots \
 
 **To run with docker (official image):**
 ```
-docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:4.6.0 --robots \
+docker run -it --network host nvcr.io/nvidia/isaac/mission-simulator:5.0.0 --robots \
     carter01,4,5 \
     carter02,9,9,3.14,3
 ```
@@ -705,4 +706,3 @@ Yes!
 
 ## License
 Isaac Mission Dispatch is under [Apache 2.0 license](https://github.com/NVIDIA-ISAAC/isaac_mission_dispatch/blob/main/LICENSE).
-

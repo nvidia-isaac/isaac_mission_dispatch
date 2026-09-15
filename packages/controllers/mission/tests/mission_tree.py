@@ -18,7 +18,7 @@ SPDX-License-Identifier: Apache-2.0
 """
 import time
 import unittest
-import pydantic.v1 as pydantic
+import pydantic
 
 from cloud_common import objects as api_objects
 from packages.controllers.mission.tests import client as simulator
@@ -480,28 +480,27 @@ class TestMissionTree(unittest.TestCase):
     def test_restart_behavior_tree_halfway(self):
         """ Test if behavior works well if we pick up a mission halfway """
         robot = simulator.RobotInit("test01", 0, 0, 0)
-        restart_once = False
         with test_context.TestContext([robot]) as ctx:
             # Create the robot and then the mission
             ctx.db_client.create(
                 api_objects.RobotObjectV1(name="test01", status={}))
             time.sleep(0.25)
-            ctx.db_client.create(
-                test_context.mission_object_generator("test01", MISSION_TREE_5))
+            mission = test_context.mission_object_generator(
+                "test01", MISSION_TREE_5)
+            ctx.db_client.create(mission)
 
-            # Make sure the mission is updated and completed
-            completed = False
-            watcher = ctx.db_client.watch(api_objects.MissionObjectV1)
-            for update in watcher:
-                if not restart_once and update.status.node_status['selector_1'].state == "RUNNING":
-                    ctx.restart_mission_server()
-                    print("Restart mission server", flush=True)
-                    restart_once = True
-                    continue
-                if update.status.state == mission_object.MissionStateV1.COMPLETED:
-                    completed = True
-                    break
-            self.assertTrue(completed)
+            test_context.wait_for_mission(
+                ctx,
+                mission.name,
+                lambda update: (
+                    "selector_1" in update.status.node_status and
+                    update.status.node_status["selector_1"].state ==
+                    mission_object.MissionStateV1.RUNNING),
+                "selector_1 to run")
+            ctx.restart_mission_server()
+            print("Restart mission server", flush=True)
+            test_context.wait_for_mission_state(
+                ctx, mission.name, mission_object.MissionStateV1.COMPLETED)
 
     def test_constant_node(self):
         """ Test three-layer tree with the constant node """

@@ -1,6 +1,6 @@
 """
 SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import datetime
 import enum
 from typing import Any, Dict, List, Optional
 
-import pydantic.v1 as pydantic
+import pydantic
 
 from cloud_common.objects import common, object
 
@@ -123,7 +123,8 @@ class MissionRouteNodeV1(pydantic.BaseModel):
     def size(self):
         return len(self.waypoints)
 
-    @pydantic.validator("waypoints")
+    @pydantic.field_validator("waypoints")
+    @classmethod
     def _validate_at_least_one_waypoint(cls, value):
         if len(value) < 1:
             raise common.ICSUsageError("Number of waypoints must be >= 1")
@@ -142,18 +143,20 @@ class MissionMoveNodeV1(pydantic.BaseModel):
             This value is in radians. If not specified, there is no rotational movement.
     """
     distance: Optional[float] = pydantic.Field(
+        None,
         description="The distance that robot needs to move")
     rotation: Optional[float] = pydantic.Field(
+        None,
         description="The relative rotation that robot needs to move in radians")
 
-    @pydantic.root_validator
-    def validate_mission_move_node_type(cls, values):
+    @pydantic.model_validator(mode="after")
+    def validate_mission_move_node_type(self):
         types = ["distance", "rotation"]
-        set_types = [type for type in types if values.get(type) is not None]
+        set_types = [node_type for node_type in types if getattr(self, node_type) is not None]
         if len(set_types) != 1:
             raise common.ICSUsageError(f"Exactly one of the following must be set {types}, "
                                        f"but the following {len(set_types)} are set {set_types}")
-        return values
+        return self
 
 
 class MissionNotifyNodeV1(pydantic.BaseModel):
@@ -184,13 +187,13 @@ class MissionNodeV1(pydantic.BaseModel):
     parent: str = pydantic.Field(
         "root", description="A parent for the node")
     route: Optional[MissionRouteNodeV1] = pydantic.Field(
-        description="A list of poses for the robot to complete.")
+        None, description="A list of poses for the robot to complete.")
     move: Optional[MissionMoveNodeV1] = pydantic.Field(
-        description="A distance or relative rotation for the robot to complete.")
+        None, description="A distance or relative rotation for the robot to complete.")
     action: Optional[MissionActionNodeV1] = pydantic.Field(
-        description="An action for the robot to complete.")
+        None, description="An action for the robot to complete.")
     notify: Optional[MissionNotifyNodeV1] = pydantic.Field(
-        description="An API for Dispatch to call.")
+        None, description="An API for Dispatch to call.")
     selector: Optional[Dict] = pydantic.Field(
         None, description="When started, this node will start its first child. If the child \
             currently running returns FAILED, start the next child. If all children fail, \
@@ -201,28 +204,28 @@ class MissionNodeV1(pydantic.BaseModel):
             currently running returns SUCCESS, start the next child. If all children succeed, \
             this node returns SUCCESS. If any child fails, this node immediately returns FAILURE.")
     constant: Optional[MissionConstantNodeV1] = pydantic.Field(
-        description="A boolean describing the whether the node status should be a success \
+        None, description="A boolean describing the whether the node status should be a success \
             or failure when started")
 
-    @pydantic.root_validator
-    def validate_mission_node_type(cls, values):
+    @pydantic.model_validator(mode="after")
+    def validate_mission_node_type(self):
         types = [e.value for e in MissionNodeType]
-        set_types = [type for type in types if values.get(type) is not None]
+        set_types = [node_type for node_type in types if getattr(self, node_type) is not None]
         if len(set_types) != 1:
             raise common.ICSUsageError(f"Exactly one of the following must be set {types}, "
                                        f"but the following {len(set_types)} are set {set_types}")
-        return values
+        return self
 
     @property
     def type(self):
-        dict_set = self.dict(exclude_unset=True, exclude_none=True)
+        dict_set = self.model_dump(exclude_unset=True, exclude_none=True)
         for node_type in MissionNodeType:
             if node_type.value in dict_set:
                 return node_type
 
     @classmethod
     def get_field_description(cls, field):
-        return cls.__fields__[field].field_info.description
+        return cls.model_fields[field].description
 
     @classmethod
     def get_supported_behaviors(cls):
@@ -236,7 +239,7 @@ class MissionNodeV1(pydantic.BaseModel):
         }
         for k, v in behavior_class_map.items():
             behaviors.append(
-                {"name": k, "params": list(getattr(v, "__fields__", {}).keys()),
+                {"name": k, "params": list(getattr(v, "model_fields", {}).keys()),
                  "description": v.__doc__})
         behaviors.append({"name": "sequence", "params": [],
                           "description": cls.get_field_description("sequence")})
@@ -248,6 +251,10 @@ class MissionNodeV1(pydantic.BaseModel):
 class MissionSpecV1(pydantic.BaseModel):
     """Specifies which robot the mission is assigned to and which orders must be completed for
     the mission."""
+    # Pydantic 1 serialized timedelta values as seconds. Keep that public API and
+    # database representation instead of Pydantic 2's ISO-8601 default.
+    model_config = pydantic.ConfigDict(ser_json_timedelta="float")
+
     robot: str = pydantic.Field(
         description="The name of the robot that this mission is assigned to.")
     mission_tree: List[MissionNodeV1] = pydantic.Field(
@@ -256,6 +263,7 @@ class MissionSpecV1(pydantic.BaseModel):
         datetime.timedelta(seconds=300),
         description="How long the mission is allowed to run before giving up.")
     deadline: Optional[datetime.datetime] = pydantic.Field(
+        None,
         description="When the mission must complete by before it is canceled.")
     needs_canceled: bool = pydantic.Field(
         False, description="Marker for whether the mission is requested to be canceled"
@@ -263,7 +271,8 @@ class MissionSpecV1(pydantic.BaseModel):
     update_nodes: Optional[Dict[str, MissionRouteNodeV1]] = pydantic.Field(
         None, description="Nodes need to be updated")
 
-    @pydantic.validator("mission_tree")
+    @pydantic.field_validator("mission_tree")
+    @classmethod
     def _validate_at_least_one_node(cls, value):
         if len(value) < 1:
             raise common.ICSUsageError("Number of nodes must be >= 1")
@@ -318,17 +327,14 @@ class MissionStatusV1(pydantic.BaseModel):
     failure_category: Optional[MissionFailureCategoryV1] = pydantic.Field(
         None, description="A enum describing the cause of the mission failure.")
 
-    class Config:
-        use_enum_value = True
-
 
 class MissionQueryParamsV1(pydantic.BaseModel):
     """Specifies the supported query parameters allowed for missions"""
-    state: Optional[MissionStateV1]
-    started_after: Optional[datetime.datetime]
-    started_before: Optional[datetime.datetime]
-    robot: Optional[str]
-    most_recent: Optional[int]
+    state: Optional[MissionStateV1] = None
+    started_after: Optional[datetime.datetime] = None
+    started_before: Optional[datetime.datetime] = None
+    robot: Optional[str] = None
+    most_recent: Optional[int] = None
 
 
 class MissionObjectV1(MissionSpecV1, object.ApiObject):
@@ -379,7 +385,8 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
     @classmethod
     def default_spec(cls) -> Dict:
         return MissionSpecV1(robot="NULL",
-                             mission_tree=[MissionNodeV1(sequence={})]).dict()  # type: ignore
+                             mission_tree=[MissionNodeV1(sequence={})]).model_dump(  # type: ignore
+                                 mode="json")
 
     async def cancel(self):
         if self.status.state.done:
@@ -393,7 +400,6 @@ class MissionObjectV1(MissionSpecV1, object.ApiObject):
         return {"detail": f"Mission {self.name} will be canceled."}
 
     async def update(self, update_nodes: Dict[str, Any]):
-        # Validate with pydantic v1 to avoid FastAPI/Pydantic v2 body validation mismatch
         try:
             validated_nodes = {
                 k: MissionRouteNodeV1(**v) if not isinstance(v, MissionRouteNodeV1) else v

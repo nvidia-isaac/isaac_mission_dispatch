@@ -23,7 +23,7 @@ import enum
 import math
 from typing import List, Optional
 
-import pydantic.v1 as pydantic
+import pydantic
 
 from cloud_common.objects import mission, robot, common
 from cloud_common.objects.robot import VDA5050AgvClass
@@ -126,7 +126,7 @@ class VDA5050Action(pydantic.BaseModel):
         return VDA5050Action(
             actionType=action.action_type,
             actionId=f"{node_id}-n{mission_node_id}",
-            actionParameters=[VDA5050ActionParameter(key=k, value=v)
+            actionParameters=[VDA5050ActionParameter(key=k, value=str(v))
                               for k, v in action.action_parameters.items()])
 
     @property
@@ -157,7 +157,7 @@ class VDA5050NodeState(pydantic.BaseModel):
     nodeId: str
     sequenceId: int
     released: bool = True
-    position: Optional[VDA5050NodePosition]
+    position: Optional[VDA5050NodePosition] = None
 
 
 class VDA5050Node(pydantic.BaseModel):
@@ -165,7 +165,7 @@ class VDA5050Node(pydantic.BaseModel):
     nodeId: str
     sequenceId: int
     released: bool = True
-    nodePosition: Optional[VDA5050NodePosition]
+    nodePosition: Optional[VDA5050NodePosition] = None
     actions: List[VDA5050Action] = []
     nodeDescription: str = ""
 
@@ -330,16 +330,18 @@ class VDA5050Order(pydantic.BaseModel):
     nodes: List[VDA5050Node]
     edges: List[VDA5050Edge]
 
-    @pydantic.validator("nodes")
+    @pydantic.field_validator("nodes")
+    @classmethod
     def _validate_at_least_one_node(cls, value):
         if len(value) < 1:
             raise common.ICSUsageError("Number of nodes must be >= 1")
         return value
 
-    @pydantic.validator("edges")
-    def _validate_node_edge_count(cls, edges, values):
+    @pydantic.field_validator("edges")
+    @classmethod
+    def _validate_node_edge_count(cls, edges, info: pydantic.ValidationInfo):
         edge_count = len(edges)
-        node_count = len(values.get("nodes", []))
+        node_count = len(info.data.get("nodes", []))
         target_edge_count = node_count - 1
         if edge_count != target_edge_count:
             raise common.ICSUsageError(
@@ -452,41 +454,41 @@ class VDA5050Order(pydantic.BaseModel):
 # VDA5050 <3.0.0
 class VDA5050BatteryState(pydantic.BaseModel):
     batteryCharge: float
-    batteryVoltage: Optional[float]
-    batteryHealth: Optional[int]
+    batteryVoltage: Optional[float] = None
+    batteryHealth: Optional[int] = None
     charging: bool
-    reach: Optional[int]
+    reach: Optional[int] = None
 
 
 # VDA5050 >=3.0.0
 class VDA5050PowerSupply(pydantic.BaseModel):
     stateOfCharge: float
-    batteryVoltage: Optional[float]
-    batteryHealth: Optional[int]
+    batteryVoltage: Optional[float] = None
+    batteryHealth: Optional[int] = None
     charging: bool
-    range: Optional[float]
+    range: Optional[float] = None
 
 
 class VDA5050BoundingBoxReference(pydantic.BaseModel):
-    theta: Optional[int]
+    theta: Optional[int] = None
     x: int
     y: int
     z: int
 
 
 class VDA5050LoadDimensions(pydantic.BaseModel):
-    height: Optional[int]
+    height: Optional[int] = None
     length: int
     width: int
 
 
 class VDA5050Load(pydantic.BaseModel):
-    boundingBoxReference: Optional[VDA5050BoundingBoxReference]
-    loadDimensions: Optional[VDA5050LoadDimensions]
-    loadId: Optional[str]
-    loadPosition: Optional[str]
-    loadType: Optional[str]
-    weight: Optional[int]
+    boundingBoxReference: Optional[VDA5050BoundingBoxReference] = None
+    loadDimensions: Optional[VDA5050LoadDimensions] = None
+    loadId: Optional[str] = None
+    loadPosition: Optional[str] = None
+    loadType: Optional[str] = None
+    weight: Optional[int] = None
 
 
 class VDA5050OperatingMode(str, enum.Enum):
@@ -508,7 +510,8 @@ class VDA5050SafetyStatus(pydantic.BaseModel):
     eStop: VDA5050EStop = VDA5050EStop.NONE
     fieldViolation: bool = False
 
-    @pydantic.validator("eStop", pre=True)
+    @pydantic.field_validator("eStop", mode="before")
+    @classmethod
     def default_operating_mode(cls, v):
         if v == "":
             return VDA5050EStop.NONE
@@ -539,7 +542,7 @@ class VDA5050State(pydantic.BaseModel):
     operatingMode: VDA5050OperatingMode = VDA5050OperatingMode.AUTOMATIC
     paused: Optional[bool] = False
     safetyState: VDA5050SafetyStatus
-    velocity: Optional[VDA5050Velocity]
+    velocity: Optional[VDA5050Velocity] = None
 
     # VDA5050 <3.0.0
     batteryState: Optional[VDA5050BatteryState] = None
@@ -548,13 +551,15 @@ class VDA5050State(pydantic.BaseModel):
     mobileRobotPosition: Optional[VDA5050MobileRobotPosition] = None
     powerSupply: Optional[VDA5050PowerSupply] = None
 
-    @pydantic.validator("operatingMode", pre=True)
+    @pydantic.field_validator("operatingMode", mode="before")
+    @classmethod
     def default_operating_mode(cls, v):
         if v == "":
             return VDA5050OperatingMode.AUTOMATIC
         return v
 
-    @pydantic.root_validator(pre=True)
+    @pydantic.model_validator(mode="before")
+    @classmethod
     def default_legacy_vda5050_fields(cls, values):
         if values.get("batteryState") is None and values.get("powerSupply") is None:
             values["batteryState"] = VDA5050BatteryState(
@@ -573,35 +578,35 @@ class VDA5050State(pydantic.BaseModel):
 
 class VDA5050TypeSpecification(pydantic.BaseModel):
     """Describes general properties of a robot"""
-    seriesName: Optional[str]
-    seriesDescription: Optional[str]
-    agvKinematic: Optional[str]
-    agvClass: Optional[str]
-    mobileRobotClass: Optional[str]
-    maxLoadMass: Optional[float]
-    localizationTypes: Optional[List[str]]
-    navigationTypes: Optional[List[str]]
+    seriesName: Optional[str] = None
+    seriesDescription: Optional[str] = None
+    agvKinematic: Optional[str] = None
+    agvClass: Optional[str] = None
+    mobileRobotClass: Optional[str] = None
+    maxLoadMass: Optional[float] = None
+    localizationTypes: Optional[List[str]] = None
+    navigationTypes: Optional[List[str]] = None
 
-    @pydantic.root_validator
-    def validate_agv_or_mobile_robot_class(cls, values):
-        has_agv_class = bool(values.get("agvClass"))
-        has_mobile_robot_class = bool(values.get("mobileRobotClass"))
+    @pydantic.model_validator(mode="after")
+    def validate_agv_or_mobile_robot_class(self):
+        has_agv_class = bool(self.agvClass)
+        has_mobile_robot_class = bool(self.mobileRobotClass)
         if has_agv_class == has_mobile_robot_class:
             raise ValueError("Exactly one of agvClass or mobileRobotClass must be defined")
-        return values
+        return self
 
 
 
 class VDA5050PhysicalParameters(pydantic.BaseModel):
     """Describes physical properties of a robot"""
-    speedMin: Optional[float]
+    speedMin: Optional[float] = None
     speedMax: float = 1
-    accelerationMax: Optional[float]
-    decelerationMax: Optional[float]
-    heightMin: Optional[float]
-    heightMax: Optional[float]
-    width: Optional[float]
-    length: Optional[float]
+    accelerationMax: Optional[float] = None
+    decelerationMax: Optional[float] = None
+    heightMin: Optional[float] = None
+    heightMax: Optional[float] = None
+    width: Optional[float] = None
+    length: Optional[float] = None
 
 
 # # # # # # # # # # # # # # # # # # # #
@@ -638,11 +643,11 @@ class VDA5050Factsheet(pydantic.BaseModel):
     serialNumber: str = ""
     typeSpecification: VDA5050TypeSpecification = VDA5050TypeSpecification(agvClass="UNKNOWN")
     physicalParameters: VDA5050PhysicalParameters = VDA5050PhysicalParameters()
-    protocolLimits: Optional[VDA5050ProtocolLimits]
-    protocolFeatures: Optional[VDA5050ProtocolFeatures]
-    agvGeometry: Optional[VDA5050AGVGeometry]
-    loadSpecification: Optional[VDA5050LoadSpecification]
-    localizationParameters: Optional[VDA5050LocalizationParameters]
+    protocolLimits: Optional[VDA5050ProtocolLimits] = None
+    protocolFeatures: Optional[VDA5050ProtocolFeatures] = None
+    agvGeometry: Optional[VDA5050AGVGeometry] = None
+    loadSpecification: Optional[VDA5050LoadSpecification] = None
+    localizationParameters: Optional[VDA5050LocalizationParameters] = None
 
 
 class VDA5050Visualization(pydantic.BaseModel):
@@ -652,8 +657,8 @@ class VDA5050Visualization(pydantic.BaseModel):
     version: str = "2.0.0"
     manufacturer: str = ""
     serialNumber: str = ""
-    agvPosition: Optional[VDA5050AgvPosition]
-    velocity: Optional[VDA5050Velocity]
+    agvPosition: Optional[VDA5050AgvPosition] = None
+    velocity: Optional[VDA5050Velocity] = None
 
 
 class VDA5050InstantActions(pydantic.BaseModel):
